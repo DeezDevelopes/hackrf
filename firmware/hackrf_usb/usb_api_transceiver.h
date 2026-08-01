@@ -21,10 +21,11 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef __USB_API_TRANSCEIVER_H__
-#define __USB_API_TRANSCEIVER_H__
+#pragma once
 
-#include <hackrf_core.h>
+#include <stdint.h>
+
+#include <transceiver_mode.h>
 #include <usb_type.h>
 #include <usb_request.h>
 
@@ -35,7 +36,8 @@ typedef struct {
 
 extern volatile transceiver_request_t transceiver_request;
 
-void set_hw_sync_mode(const hw_sync_mode_t new_hw_sync_mode);
+void transceiver_usb_setup_complete(usb_endpoint_t* const endpoint);
+
 usb_request_status_t usb_vendor_request_set_transceiver_mode(
 	usb_endpoint_t* const endpoint,
 	const usb_transfer_stage_t stage);
@@ -75,13 +77,13 @@ usb_request_status_t usb_vendor_request_set_tx_underrun_limit(
 usb_request_status_t usb_vendor_request_set_rx_overrun_limit(
 	usb_endpoint_t* const endpoint,
 	const usb_transfer_stage_t stage);
+usb_request_status_t usb_vendor_request_get_buffer_size(
+	usb_endpoint_t* const endpoint,
+	const usb_transfer_stage_t stage);
 
 void request_transceiver_mode(transceiver_mode_t mode);
 void transceiver_startup(transceiver_mode_t mode);
 void transceiver_shutdown(void);
-void start_streaming_on_hw_sync();
 void rx_mode(uint32_t seq);
 void tx_mode(uint32_t seq);
 void off_mode(uint32_t seq);
-
-#endif /*__USB_API_TRANSCEIVER_H__*/

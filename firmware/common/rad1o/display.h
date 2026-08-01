@@ -1,9 +1,9 @@
-#ifndef __RAD1O_DISPLAY_H__
-#define __RAD1O_DISPLAY_H__
-
-#include <libopencm3/cm3/common.h>
+#pragma once
 
 #include <stdint.h>
+
+#include <libopencm3/lpc43xx/scu.h>
+#include <libopencm3/lpc43xx/ssp.h>
 
 #define RESX 130
 #define RESY 130
@@ -26,5 +26,3 @@ void rad1o_lcdFill(uint8_t f);
 void rad1o_lcdDisplay(void);
 void rad1o_lcdSetPixel(uint8_t x, uint8_t y, uint8_t f);
 uint8_t* rad1o_lcdGetBuffer(void);
-
-#endif

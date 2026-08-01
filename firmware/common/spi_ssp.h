@@ -20,20 +20,19 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef __SPI_SSP_H__
-#define __SPI_SSP_H__
+#pragma once
 
 #include <stdint.h>
 #include <stddef.h>
 
-#include "spi_bus.h"
-
-#include "gpio.h"
-
 #include <libopencm3/lpc43xx/ssp.h>
 
-typedef struct ssp_config_t {
+#include "gpio.h"
+#include "spi_bus.h"
+
+typedef struct {
 	ssp_datasize_t data_bits;
+	ssp_cpol_cpha_t spi_mode;
 	uint8_t serial_clock_rate;
 	uint8_t clock_prescale_rate;
 	gpio_t gpio_select;
@@ -47,4 +46,6 @@ void spi_ssp_transfer_gather(
 	const spi_transfer_t* const transfers,
 	const size_t count);
 
-#endif /*__SPI_SSP_H__*/
+/* Driver instances. */
+extern spi_bus_t spi_bus_ssp0;
+extern spi_bus_t spi_bus_ssp1;

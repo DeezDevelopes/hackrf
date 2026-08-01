@@ -20,10 +20,17 @@
 
 # Top directory CMake project for HackRF firmware
 
-cmake_minimum_required(VERSION 3.1.3)
+option(CHECK_INCLUDES
+	   "Check firmware sources for unused includes and transitive dependencies. (Requires iwyu)" OFF)
+
+cmake_minimum_required(VERSION 3.12.0)
 set(CMAKE_TOOLCHAIN_FILE toolchain-arm-cortex-m.cmake)
 
 project (hackrf_firmware_all C)
+
+if(CHECK_INCLUDES)
+	include(include-what-you-use.cmake)
+endif()
 
 add_subdirectory(blinky)
 add_subdirectory(hackrf_usb)

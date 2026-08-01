@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2022 Great Scott Gadgets <info@greatscottgadgets.com>
+ * Copyright 2015-2026 Great Scott Gadgets <info@greatscottgadgets.com>
  *
  * This file is part of HackRF.
  *
@@ -20,35 +20,44 @@
  */
 
 #include "max2871.h"
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include <libopencm3/lpc43xx/scu.h>
+
+#include "fixed_point.h"
 #include "max2871_regs.h"
+#include "platform_scu.h"
+#include "selftest.h"
 
 #if (defined DEBUG)
 	#include <stdio.h>
 	#define LOG printf
 #else
 	#define LOG(x, ...)
-	#include <libopencm3/lpc43xx/ssp.h>
-	#include <libopencm3/lpc43xx/scu.h>
-	#include "hackrf_core.h"
 #endif
 
-#include <stdint.h>
-#include <string.h>
+#define MIN(x, y) ((x) < (y) ? (x) : (y))
+#define MAX(x, y) ((x) > (y) ? (x) : (y))
 
+static uint32_t max2871_spi_read(max2871_driver_t* const drv);
 static void max2871_spi_write(max2871_driver_t* const drv, uint8_t r, uint32_t v);
 static void max2871_write_registers(max2871_driver_t* const drv);
 static void delay_ms(int ms);
 
 void max2871_setup(max2871_driver_t* const drv)
 {
+	const platform_scu_t* scu = platform_scu();
+
 	/* Configure GPIO pins. */
-	scu_pinmux(SCU_VCO_CE, SCU_GPIO_FAST);
-	scu_pinmux(SCU_VCO_SCLK, SCU_GPIO_FAST | SCU_CONF_FUNCTION4);
-	/* Only used for the debug pin config: scu_pinmux(SCU_VCO_SCLK, SCU_GPIO_FAST); */
-	scu_pinmux(SCU_VCO_SDATA, SCU_GPIO_FAST);
-	scu_pinmux(SCU_VCO_LE, SCU_GPIO_FAST);
-	scu_pinmux(SCU_VCO_MUX, SCU_GPIO_FAST | SCU_CONF_FUNCTION4);
-	scu_pinmux(SCU_SYNT_RFOUT_EN, SCU_GPIO_FAST);
+	scu_pinmux(scu->VCO_CE, SCU_GPIO_FAST);
+	scu_pinmux(scu->VCO_SCLK, SCU_GPIO_FAST | SCU_CONF_FUNCTION4);
+	/* Only used for the debug pin config: scu_pinmux(scu->VCO_SCLK, SCU_GPIO_FAST); */
+	scu_pinmux(scu->VCO_SDATA, SCU_GPIO_FAST);
+	scu_pinmux(scu->VCO_LE, SCU_GPIO_FAST);
+	scu_pinmux(scu->VCO_MUX, SCU_GPIO_FAST | SCU_CONF_FUNCTION4);
+	scu_pinmux(scu->SYNT_RFOUT_EN, SCU_GPIO_FAST);
 
 	/* Set GPIO pins as outputs. */
 	gpio_output(drv->gpio_vco_ce);
@@ -66,6 +75,11 @@ void max2871_setup(max2871_driver_t* const drv)
 	gpio_clear(drv->gpio_vco_sdata);
 	gpio_set(drv->gpio_vco_le);        /* active low */
 	gpio_set(drv->gpio_synt_rfout_en); /* active high */
+
+	selftest.mixer_id = max2871_spi_read(drv) >> MAX2871_DIE_SHIFT;
+	if (selftest.mixer_id != 7) {
+		selftest.report.pass = false;
+	}
 
 	max2871_regs_init();
 	int i;
@@ -123,7 +137,7 @@ void max2871_setup(max2871_driver_t* const drv)
 
 	max2871_write_registers(drv);
 
-	max2871_set_frequency(drv, 3500);
+	max2871_set_frequency(drv, FP_MHZ(3500), true);
 }
 
 static void delay_ms(int ms)
@@ -219,9 +233,16 @@ static void max2871_write_registers(max2871_driver_t* const drv)
 	}
 }
 
-/* Set frequency (MHz). */
-uint64_t max2871_set_frequency(max2871_driver_t* const drv, uint16_t mhz)
+#define MIN_LO FP_MHZ(40)
+#define MAX_LO FP_MHZ(6000)
+
+/* Set frequency in 1/(2**24) Hz, rounded to nearest 40 MHz. */
+fp_40_24_t max2871_set_frequency(max2871_driver_t* const drv, fp_40_24_t lo, bool program)
 {
+	lo = MIN(lo, MAX_LO);
+	lo = MAX(lo, MIN_LO);
+
+	uint16_t mhz = lo / FP_ONE_MHZ;
 	int n = mhz / 40;
 	int diva = 0;
 
@@ -230,19 +251,21 @@ uint64_t max2871_set_frequency(max2871_driver_t* const drv, uint16_t mhz)
 		diva += 1;
 	}
 
-	max2871_set_RFA_EN(0);
-	max2871_write_registers(drv);
+	if (program) {
+		max2871_set_RFA_EN(0);
+		max2871_write_registers(drv);
 
-	max2871_set_N(n);
-	max2871_set_DIVA(diva);
-	max2871_write_registers(drv);
+		max2871_set_N(n);
+		max2871_set_DIVA(diva);
+		max2871_write_registers(drv);
 
-	while (max2871_spi_read(drv) & MAX2871_VASA) {}
+		while (max2871_spi_read(drv) & MAX2871_VASA) {}
 
-	max2871_set_RFA_EN(1);
-	max2871_write_registers(drv);
+		max2871_set_RFA_EN(1);
+		max2871_write_registers(drv);
+	}
 
-	return (mhz / 40) * 40 * 1000000;
+	return (mhz / 40) * FP_MHZ(40);
 }
 
 void max2871_enable(max2871_driver_t* const drv)

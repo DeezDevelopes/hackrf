@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2022 Great Scott Gadgets <info@greatscottgadgets.com>
+ * Copyright 2012-2026 Great Scott Gadgets <info@greatscottgadgets.com>
  * Copyright 2012 Jared Boone
  * Copyright 2013 Benjamin Vernoux
  *
@@ -21,11 +21,10 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef __USB_API_REGISTER_H__
-#define __USB_API_REGISTER_H__
+#pragma once
 
-#include <usb_type.h>
 #include <usb_request.h>
+#include <usb_type.h>
 
 usb_request_status_t usb_vendor_request_write_max283x(
 	usb_endpoint_t* const endpoint,
@@ -57,5 +56,17 @@ usb_request_status_t usb_vendor_request_set_leds(
 usb_request_status_t usb_vendor_request_user_config_set_bias_t_opts(
 	usb_endpoint_t* const endpoint,
 	const usb_transfer_stage_t stage);
-
-#endif /* end of include guard: __USB_API_REGISTER_H__ */
+#ifdef IS_PRALINE
+usb_request_status_t usb_vendor_request_write_fpga_reg(
+	usb_endpoint_t* const endpoint,
+	const usb_transfer_stage_t stage);
+usb_request_status_t usb_vendor_request_read_fpga_reg(
+	usb_endpoint_t* const endpoint,
+	const usb_transfer_stage_t stage);
+#endif
+usb_request_status_t usb_vendor_request_write_radio_reg(
+	usb_endpoint_t* const endpoint,
+	const usb_transfer_stage_t stage);
+usb_request_status_t usb_vendor_request_read_radio_reg(
+	usb_endpoint_t* const endpoint,
+	const usb_transfer_stage_t stage);

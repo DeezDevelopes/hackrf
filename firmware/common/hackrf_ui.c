@@ -20,12 +20,16 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "hackrf_ui.h"
-
-#include "ui_portapack.h"
-#include "ui_rad1o.h"
-
 #include <stddef.h>
+
+#include "hackrf_ui.h"
+#include "transceiver_mode.h"
+#ifdef IS_EXPANSION_COMPATIBLE
+	#include "ui_portapack.h"
+#endif
+#ifdef IS_RAD1O
+	#include "ui_rad1o.h"
+#endif
 
 #define UNUSED(x) (void) (x)
 
@@ -78,14 +82,18 @@ const hackrf_ui_t* hackrf_ui(void)
 {
 	/* Detect on first use. If no UI hardware is detected, use a stub function table. */
 	if (ui == NULL && ui_enabled) {
-#ifdef HACKRF_ONE
-		if (portapack_hackrf_ui_init) {
-			ui = portapack_hackrf_ui_init();
+#ifdef IS_EXPANSION_COMPATIBLE
+		if (IS_EXPANSION_COMPATIBLE) {
+			if (portapack_hackrf_ui_init) {
+				ui = portapack_hackrf_ui_init();
+			}
 		}
 #endif
-#ifdef RAD1O
-		if (rad1o_ui_setup) {
-			ui = rad1o_ui_setup();
+#ifdef IS_RAD1O
+		if (IS_RAD1O) {
+			if (rad1o_ui_setup) {
+				ui = rad1o_ui_setup();
+			}
 		}
 #endif
 	}

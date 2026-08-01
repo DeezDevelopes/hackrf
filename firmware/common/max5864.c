@@ -20,13 +20,38 @@
  * Boston, MA 02110-1301, USA.
  */
 
+#include "max5864.h"
+
 #include <stdint.h>
 
-#include "max5864.h"
+#include <libopencm3/lpc43xx/ssp.h>
+
+#include "max5864_target.h"
+#include "platform_gpio.h"
+#include "spi_bus.h"
+
+/* Driver instance. */
+ssp_config_t ssp_config_max5864 = {
+	/* FIXME speed up once everything is working reliably */
+	/*
+	// Freq About 0.0498MHz / 49.8KHz => Freq = PCLK / (CPSDVSR * [SCR+1]) with PCLK=PLL1=204MHz
+	const uint8_t serial_clock_rate = 32;
+	const uint8_t clock_prescale_rate = 128;
+	*/
+	// Freq About 4.857MHz => Freq = PCLK / (CPSDVSR * [SCR+1]) with PCLK=PLL1=204MHz
+	.data_bits = SSP_DATA_8BITS,
+	.serial_clock_rate = 21,
+	.clock_prescale_rate = 2,
+};
+
+max5864_driver_t max5864 = {
+	.bus = &spi_bus_ssp1,
+	.target_init = max5864_target_init,
+};
 
 static void max5864_write(max5864_driver_t* const drv, uint8_t value)
 {
-	spi_bus_transfer(drv->bus, &value, 1);
+	spi_bus_transfer(drv->bus, &ssp_config_max5864, &value, 1);
 }
 
 static void max5864_init(max5864_driver_t* const drv)
@@ -36,6 +61,8 @@ static void max5864_init(max5864_driver_t* const drv)
 
 void max5864_setup(max5864_driver_t* const drv)
 {
+	ssp_config_max5864.gpio_select = platform_gpio()->max5864_select;
+
 	max5864_init(drv);
 }
 

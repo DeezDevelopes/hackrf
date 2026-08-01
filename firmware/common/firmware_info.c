@@ -21,11 +21,6 @@
 
 #include "firmware_info.h"
 #include "platform_detect.h"
-#include "gpio_lpc.h"
-#include "hackrf_core.h"
-
-#include <libopencm3/lpc43xx/scu.h>
-#include <libopencm3/lpc43xx/adc.h>
 
 #ifdef JAWBREAKER
 	#define SUPPORTED_PLATFORM PLATFORM_JAWBREAKER
@@ -33,6 +28,11 @@
 	#define SUPPORTED_PLATFORM (PLATFORM_HACKRF1_OG | PLATFORM_HACKRF1_R9)
 #elif RAD1O
 	#define SUPPORTED_PLATFORM PLATFORM_RAD1O
+#elif PRALINE
+	#define SUPPORTED_PLATFORM PLATFORM_PRALINE
+#elif UNIVERSAL
+	#define SUPPORTED_PLATFORM \
+		(PLATFORM_PRALINE | PLATFORM_HACKRF1_OG | PLATFORM_HACKRF1_R9)
 #else
 	#define SUPPORTED_PLATFORM 0
 #endif

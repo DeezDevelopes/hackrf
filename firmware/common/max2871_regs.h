@@ -19,11 +19,12 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef MAX2871_REGS_H
-#define MAX2871_REGS_H
+#pragma once
+
 #include <stdint.h>
 
-#define MAX2871_VASA (1 << 9)
+#define MAX2871_VASA      (1 << 9)
+#define MAX2871_DIE_SHIFT 28
 
 void max2871_regs_init(void);
 uint32_t max2871_get_register(int reg);
@@ -74,4 +75,3 @@ void max2871_set_F01(uint32_t v);
 void max2871_set_LD(uint32_t v);
 void max2871_set_ADCS(uint32_t v);
 void max2871_set_ADCM(uint32_t v);
-#endif

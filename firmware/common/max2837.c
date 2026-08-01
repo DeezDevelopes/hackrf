@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2022 Great Scott Gadgets <info@greatscottgadgets.com>
+ * Copyright 2012-2026 Great Scott Gadgets <info@greatscottgadgets.com>
  * Copyright 2012 Will Code <willcode4@gmail.com>
  * Copyright 2014 Jared Boone <jared@sharebrained.com>
  *
@@ -29,15 +29,22 @@
  * pirate commands to do the same thing.
  */
 
+#include "max2837.h"
+
+#include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
-#include "max2837.h"
+#include "fixed_point.h"
 #include "max2837_regs.def" // private register def macros
+#include "selftest.h"
+
+#define MIN(x, y) ((x) < (y) ? (x) : (y))
+#define MAX(x, y) ((x) > (y) ? (x) : (y))
 
 /* Default register values. */
 static const uint16_t max2837_regs_default[MAX2837_NUM_REGS] = {
 	0x150, /* 0 */
-	0x002, /* 1 */
+	0x002, /* 1:  data sheet says 0x002 but read 0x1c2 */
 	0x1f4, /* 2 */
 	0x1b9, /* 3 */
 	0x00a, /* 4 */
@@ -66,13 +73,17 @@ static const uint16_t max2837_regs_default[MAX2837_NUM_REGS] = {
 	0x1a9,  /* 22 */
 	0x24f,  /* 23 */
 	0x180,  /* 24 */
-	0x100,  /* 25 */
+	0x100,  /* 25:  data sheet says 0x100 but read 0x10a */
 	0x3ca,  /* 26 */
-	0x3e3,  /* 27 */
+	0x3e3,  /* 27:  data sheet says 0x100 but read 0x3f3 */
 	0x0c0,  /* 28 */
 	0x3f0,  /* 29 */
-	0x080,  /* 30 */
-	0x000}; /* 31 */
+	0x080,  /* 30:  data sheet says 0x080 but read 0x092 */
+	0x000}; /* 31:  data sheet says 0x000 but read 0x1ae */
+
+static const uint8_t max2837_regs_skip_verify[] = {1, 25, 27, 30, 31};
+
+static uint16_t max2837_read(max2837_driver_t* const drv, uint8_t r);
 
 /* Set up all registers according to defaults specified in docs. */
 static void max2837_init(max2837_driver_t* const drv)
@@ -85,6 +96,28 @@ static void max2837_init(max2837_driver_t* const drv)
 
 	/* Write default register values to chip. */
 	max2837_regs_commit(drv);
+
+	/* Read back registers to verify. */
+	selftest.max283x_readback_total_registers = MAX2837_NUM_REGS;
+	for (int r = 0; r < MAX2837_NUM_REGS; r++) {
+		for (unsigned int i = 0; i < sizeof(max2837_regs_skip_verify); i++) {
+			if (max2837_regs_skip_verify[i] == r) {
+				goto next;
+			}
+		}
+		uint16_t value = max2837_read(drv, r);
+		if (value != drv->regs[r]) {
+			selftest.max283x_readback_bad_value = value;
+			selftest.max283x_readback_expected_value = drv->regs[r];
+			break;
+		}
+next:
+		selftest.max283x_readback_register_count = r + 1;
+	}
+
+	if (selftest.max283x_readback_register_count < MAX2837_NUM_REGS) {
+		selftest.report.pass = false;
+	}
 }
 
 /*
@@ -123,14 +156,14 @@ void max2837_setup(max2837_driver_t* const drv)
 static uint16_t max2837_read(max2837_driver_t* const drv, uint8_t r)
 {
 	uint16_t value = (1 << 15) | (r << 10);
-	spi_bus_transfer(drv->bus, &value, 1);
+	spi_bus_transfer(drv->bus, drv->config, &value, 1);
 	return value & 0x3ff;
 }
 
 static void max2837_write(max2837_driver_t* const drv, uint8_t r, uint16_t v)
 {
 	uint16_t value = (r << 10) | (v & 0x3ff);
-	spi_bus_transfer(drv->bus, &value, 1);
+	spi_bus_transfer(drv->bus, drv->config, &value, 1);
 }
 
 uint16_t max2837_reg_read(max2837_driver_t* const drv, uint8_t r)
@@ -201,24 +234,32 @@ void max2837_stop(max2837_driver_t* const drv)
 	max2837_set_mode(drv, MAX2837_MODE_SHUTDOWN);
 }
 
-void max2837_set_frequency(max2837_driver_t* const drv, uint32_t freq)
+/* Assume 40 MHz reference clock with R divider of 1. */
+#define PFD_FREQ_HZ (40ULL * (1000ULL * 1000ULL))
+
+#define MIN_FREQ FP_MHZ(2000)
+#define MAX_FREQ FP_MHZ(3000)
+
+fp_40_24_t max2837_set_frequency(
+	max2837_driver_t* const drv,
+	fp_40_24_t freq,
+	bool program)
 {
 	uint8_t band;
 	uint8_t lna_band;
-	uint32_t div_frac;
-	uint32_t div_int;
-	uint32_t div_rem;
-	uint32_t div_cmp;
-	int i;
+	uint64_t div;
+
+	freq = MIN(freq, MAX_FREQ);
+	freq = MAX(freq, MIN_FREQ);
 
 	/* Select band. Allow tuning outside specified bands. */
-	if (freq < 2400000000U) {
+	if (freq < FP_MHZ(2400)) {
 		band = MAX2837_LOGEN_BSW_2_3;
 		lna_band = MAX2837_LNAband_2_4;
-	} else if (freq < 2500000000U) {
+	} else if (freq < FP_MHZ(2500)) {
 		band = MAX2837_LOGEN_BSW_2_4;
 		lna_band = MAX2837_LNAband_2_4;
-	} else if (freq < 2600000000U) {
+	} else if (freq < FP_MHZ(2600)) {
 		band = MAX2837_LOGEN_BSW_2_5;
 		lna_band = MAX2837_LNAband_2_6;
 	} else {
@@ -226,34 +267,34 @@ void max2837_set_frequency(max2837_driver_t* const drv, uint32_t freq)
 		lna_band = MAX2837_LNAband_2_6;
 	}
 
-	/* ASSUME 40MHz PLL. Ratio = F*(4/3)/40,000,000 = F/30,000,000 */
-	div_int = freq / 30000000;
-	div_rem = freq % 30000000;
-	div_frac = 0;
-	div_cmp = 30000000;
-	for (i = 0; i < 20; i++) {
-		div_frac <<= 1;
-		div_cmp >>= 1;
-		if (div_rem > div_cmp) {
-			div_frac |= 0x1;
-			div_rem -= div_cmp;
-		}
+	fp_40_24_t vco = (freq * 4) / 3;
+
+	vco += ((PFD_FREQ_HZ * FP_ONE_HZ) >> 21); /* round to nearest frequency */
+	div = vco / PFD_FREQ_HZ;
+
+	/*
+	 * Shift from 40.24 fixed-point to 44.20 to match 20-bit fractional
+	 * divider.
+	 */
+	div = div >> 4;
+
+	if (program) {
+		/* Band settings */
+		set_MAX2837_LOGEN_BSW(drv, band);
+		set_MAX2837_LNAband(drv, lna_band);
+
+		/*
+		 * Write order matters here, so commit INT and FRAC_HI before
+		 * committing FRAC_LO, which is the trigger for VCO auto-select.
+		 */
+		set_MAX2837_SYN_INT(drv, (div >> 20) & 0xff);
+		set_MAX2837_SYN_FRAC_HI(drv, (div >> 10) & 0x3ff);
+		max2837_regs_commit(drv);
+		set_MAX2837_SYN_FRAC_LO(drv, div & 0x3ff);
+		max2837_regs_commit(drv);
 	}
 
-	/* Band settings */
-	set_MAX2837_LOGEN_BSW(drv, band);
-	set_MAX2837_LNAband(drv, lna_band);
-
-	/* Write order matters here, so commit INT and FRAC_HI before
-	 * committing FRAC_LO, which is the trigger for VCO
-	 * auto-select. TODO - it's cleaner this way, but it would be
-	 * faster to explicitly commit the registers explicitly so the
-	 * dirty bits aren't scanned twice. */
-	set_MAX2837_SYN_INT(drv, div_int);
-	set_MAX2837_SYN_FRAC_HI(drv, (div_frac >> 10) & 0x3ff);
-	max2837_regs_commit(drv);
-	set_MAX2837_SYN_FRAC_LO(drv, div_frac & 0x3ff);
-	max2837_regs_commit(drv);
+	return ((PFD_FREQ_HZ * 3) / 4) * (div << 4);
 }
 
 typedef struct {

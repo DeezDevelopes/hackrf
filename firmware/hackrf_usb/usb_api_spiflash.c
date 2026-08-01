@@ -23,12 +23,12 @@
 
 #include "usb_api_spiflash.h"
 
-#include "usb_queue.h"
-
 #include <stddef.h>
+#include <stdint.h>
 
-#include <hackrf_core.h>
-
+#include <usb_queue.h>
+#include <usb_request.h>
+#include <usb_type.h>
 #include <w25q80bv.h>
 
 /* Buffer size == spi_flash.page_len */
@@ -39,7 +39,6 @@ usb_request_status_t usb_vendor_request_erase_spiflash(
 	const usb_transfer_stage_t stage)
 {
 	if (stage == USB_TRANSFER_STAGE_SETUP) {
-		spi_bus_start(spi_flash.bus, &ssp_config_w25q80bv);
 		w25q80bv_setup(&spi_flash);
 		/* only chip erase is implemented */
 		w25q80bv_chip_erase(&spi_flash);
@@ -68,7 +67,6 @@ usb_request_status_t usb_vendor_request_write_spiflash(
 				len,
 				NULL,
 				NULL);
-			spi_bus_start(spi_flash.bus, &ssp_config_w25q80bv);
 			w25q80bv_setup(&spi_flash);
 			return USB_REQUEST_STATUS_OK;
 		}
@@ -110,6 +108,7 @@ usb_request_status_t usb_vendor_request_read_spiflash(
 				len,
 				NULL,
 				NULL);
+			usb_transfer_schedule_ack(endpoint->out);
 			return USB_REQUEST_STATUS_OK;
 		}
 	} else if (stage == USB_TRANSFER_STAGE_DATA) {
@@ -120,7 +119,6 @@ usb_request_status_t usb_vendor_request_read_spiflash(
 		    ((addr + len) > spi_flash.num_bytes)) {
 			return USB_REQUEST_STATUS_STALL;
 		} else {
-			usb_transfer_schedule_ack(endpoint->out);
 			return USB_REQUEST_STATUS_OK;
 		}
 	} else {
@@ -140,13 +138,9 @@ usb_request_status_t usb_vendor_request_spiflash_status(
 			2,
 			NULL,
 			NULL);
-		return USB_REQUEST_STATUS_OK;
-	} else if (stage == USB_TRANSFER_STAGE_DATA) {
 		usb_transfer_schedule_ack(endpoint->out);
-		return USB_REQUEST_STATUS_OK;
-	} else {
-		return USB_REQUEST_STATUS_OK;
 	}
+	return USB_REQUEST_STATUS_OK;
 }
 
 usb_request_status_t usb_vendor_request_spiflash_clear_status(

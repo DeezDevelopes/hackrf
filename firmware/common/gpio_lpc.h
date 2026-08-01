@@ -20,19 +20,16 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef __GPIO_LPC_H__
-#define __GPIO_LPC_H__
+#pragma once
 
 #include <stdint.h>
-
-#include "gpio.h"
 
 /* NOTE: libopencm3 constants and functions not used here due to naming
  * conflicts. I'd recommend changes to libopencm3 design to separate
  * register #defines and API declarations into separate header files.
  */
 
-typedef struct gpio_port_t {
+typedef struct {
 	volatile uint32_t dir; /* +0x000 */
 	uint32_t _reserved0[31];
 	volatile uint32_t mask; /* +0x080 */
@@ -45,10 +42,10 @@ typedef struct gpio_port_t {
 	uint32_t _reserved4[31];
 	volatile uint32_t clr; /* +0x280 */
 	uint32_t _reserved5[31];
-	volatile uint32_t not ; /* +0x300 */
+	volatile uint32_t inv; /* +0x300 */
 } gpio_port_t;
 
-struct gpio_t {
+struct gpio {
 	const uint32_t mask;
 	gpio_port_t* const port;
 	volatile uint32_t* const gpio_w;
@@ -71,5 +68,3 @@ struct gpio_t {
 	.gpio_w = GPIO_LPC_W(_port_num, _pin_num), \
 }
 // clang-format on
-
-#endif /*__GPIO_LPC_H__*/

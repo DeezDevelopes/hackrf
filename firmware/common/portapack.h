@@ -20,40 +20,39 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef __PORTAPACK_H__
-#define __PORTAPACK_H__
+#pragma once
 
-#include <stdint.h>
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #define ARRAY_SIZEOF(x) (sizeof(x) / sizeof(x[0]))
 
-typedef struct ui_color_t {
+typedef struct {
 	uint16_t v;
 } ui_color_t;
 
-typedef struct ui_point_t {
+typedef struct {
 	int16_t x;
 	int16_t y;
 } ui_point_t;
 
-typedef struct ui_size_t {
+typedef struct {
 	int16_t width;
 	int16_t height;
 } ui_size_t;
 
-typedef struct ui_rect_t {
+typedef struct {
 	ui_point_t point;
 	ui_size_t size;
 } ui_rect_t;
 
-typedef struct ui_bitmap_t {
+typedef struct {
 	ui_size_t size;
 	const uint8_t* const data;
 } ui_bitmap_t;
 
-typedef struct ui_font_t {
+typedef struct {
 	const ui_size_t glyph_size;
 	const uint8_t* const data;
 	char c_start;
@@ -61,18 +60,16 @@ typedef struct ui_font_t {
 	size_t data_stride;
 } ui_font_t;
 
-typedef struct portapack_t {
+typedef struct {
 } portapack_t;
 
-void portapack_init(void);
+bool portapack_init(void);
 
-/* If the "portapack" symbol is defined, PortaPack support is compiled in */
-/* If the portapack() call returns non-NULL, a PortaPack was detected and is initialized. */
-const portapack_t* portapack(void) __attribute__((weak));
+bool portapack_present(void);
 
 void portapack_backlight(const bool on);
 
-void portapack_reference_oscillator(const bool on) __attribute__((weak));
+void portapack_reference_oscillator(const bool on);
 
 void portapack_fill_rectangle(const ui_rect_t rect, const ui_color_t color);
 
@@ -85,5 +82,3 @@ void portapack_draw_bitmap(
 	const ui_color_t background);
 
 ui_bitmap_t portapack_font_glyph(const ui_font_t* const font, const char c);
-
-#endif /*__PORTAPACK_H__*/

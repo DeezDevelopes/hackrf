@@ -22,7 +22,14 @@
 
 #include "ui_portapack.h"
 
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "clock_gen.h"
 #include "portapack.h"
+#include "rf_path.h"
+#include "transceiver_mode.h"
 
 /* Pixel data within a font or bitmap byte is "reversed": LSB is left-most pixel. */
 
@@ -387,7 +394,7 @@ static ui_point_t portapack_lcd_draw_string(ui_point_t point, const char* s)
 	return point;
 }
 
-typedef struct draw_list_t {
+typedef struct {
 	const ui_bitmap_t* bitmap;
 	const ui_point_t point;
 } draw_list_t;
@@ -488,8 +495,11 @@ static void portapack_radio_path_item_update(
 
 static rf_path_direction_t portapack_direction = RF_PATH_DIRECTION_OFF;
 static bool portapack_lna_on = false;
+static uint32_t tx_if_gain = 0;
+static uint32_t rx_if_gain = 0;
+static uint32_t rx_bb_gain = 0;
 
-static void portapack_radio_path_redraw()
+static void portapack_radio_path_redraw(void)
 {
 	for (size_t i = 0; i < ARRAY_SIZEOF(radio_draw_list); i++) {
 		portapack_draw_radio_path_item(i);
@@ -511,7 +521,7 @@ static void portapack_ui_deinit(void)
 
 static void portapack_ui_set_frequency(uint64_t frequency)
 {
-	static char last[10] = "          ";
+	__attribute__((nonstring)) static char last[10] = "          ";
 
 	ui_point_t point = {240 - 20, 16};
 
@@ -519,7 +529,7 @@ static void portapack_ui_set_frequency(uint64_t frequency)
 	char s[10];
 	for (int i = 0; i < 10; i++) {
 		const char c = '0' + value % 10;
-		s[i] = ((i >= 6) && (value == 0)) ? ' ' : c;
+		s[i] = ((i >= 7) && (value == 0)) ? ' ' : c;
 		value /= 10;
 	}
 
@@ -562,51 +572,6 @@ static void portapack_ui_set_sample_rate(uint32_t sample_rate)
 #endif
 }
 
-static void portapack_ui_set_direction(const rf_path_direction_t direction)
-{
-	switch (direction) {
-	case RF_PATH_DIRECTION_TX:
-		portapack_radio_path_item_update(
-			RADIO_DRAW_LIST_ITEM_WAVES,
-			&bitmap_waves_tx);
-		portapack_radio_path_item_update(
-			RADIO_DRAW_LIST_ITEM_RF_AMP,
-			portapack_lna_on ? &bitmap_amp_tx : &bitmap_wire_24);
-		portapack_radio_path_item_update(
-			RADIO_DRAW_LIST_ITEM_BB_LNA_AMP,
-			&bitmap_amp_tx);
-		portapack_radio_path_item_update(
-			RADIO_DRAW_LIST_ITEM_BB_VGA_AMP,
-			&bitmap_wire_24);
-		portapack_ui_draw_string(RADIO_DRAW_LIST_ITEM_BB_VGA_AMP, "     ");
-		break;
-
-	case RF_PATH_DIRECTION_RX:
-		portapack_radio_path_item_update(
-			RADIO_DRAW_LIST_ITEM_WAVES,
-			&bitmap_waves_rx);
-		portapack_radio_path_item_update(
-			RADIO_DRAW_LIST_ITEM_RF_AMP,
-			portapack_lna_on ? &bitmap_amp_rx : &bitmap_wire_24);
-		portapack_radio_path_item_update(
-			RADIO_DRAW_LIST_ITEM_BB_LNA_AMP,
-			&bitmap_amp_rx);
-		portapack_radio_path_item_update(
-			RADIO_DRAW_LIST_ITEM_BB_VGA_AMP,
-			&bitmap_amp_rx);
-		break;
-
-	case RF_PATH_DIRECTION_OFF:
-	default:
-		portapack_radio_path_item_update(
-			RADIO_DRAW_LIST_ITEM_WAVES,
-			&bitmap_blank_24);
-		break;
-	}
-
-	portapack_direction = direction;
-}
-
 static void portapack_ui_set_filter_bw(uint32_t bandwidth)
 {
 	portapack_ui_draw_bw_mhz(RADIO_DRAW_LIST_ITEM_BB_FILTER, bandwidth);
@@ -627,12 +592,18 @@ static void portapack_ui_set_lna_power(bool lna_on)
 
 static void portapack_ui_set_bb_lna_gain(const uint32_t gain_db)
 {
-	portapack_ui_draw_db(RADIO_DRAW_LIST_ITEM_BB_LNA_AMP, gain_db);
+	rx_if_gain = gain_db;
+	if (portapack_direction == RF_PATH_DIRECTION_RX) {
+		portapack_ui_draw_db(RADIO_DRAW_LIST_ITEM_BB_LNA_AMP, gain_db);
+	}
 }
 
 static void portapack_ui_set_bb_vga_gain(const uint32_t gain_db)
 {
-	portapack_ui_draw_db(RADIO_DRAW_LIST_ITEM_BB_VGA_AMP, gain_db);
+	rx_bb_gain = gain_db;
+	if (portapack_direction == RF_PATH_DIRECTION_RX) {
+		portapack_ui_draw_db(RADIO_DRAW_LIST_ITEM_BB_VGA_AMP, gain_db);
+	}
 }
 
 static void portapack_ui_set_bb_tx_vga_gain(const uint32_t gain_db)
@@ -641,7 +612,10 @@ static void portapack_ui_set_bb_tx_vga_gain(const uint32_t gain_db)
 	 * According to the MAX2837 datasheet diagram, there is no baseband gain in the TX path.
 	 * This gets called when the TX IF gain is changed.
 	 */
-	portapack_ui_draw_db(RADIO_DRAW_LIST_ITEM_BB_LNA_AMP, gain_db);
+	tx_if_gain = gain_db;
+	if (portapack_direction == RF_PATH_DIRECTION_TX) {
+		portapack_ui_draw_db(RADIO_DRAW_LIST_ITEM_BB_LNA_AMP, gain_db);
+	}
 }
 
 static void portapack_ui_set_first_if_frequency(const uint64_t frequency)
@@ -717,6 +691,54 @@ static bool portapack_ui_operacake_gpio_compatible(void)
 	return false;
 }
 
+static void portapack_ui_set_direction(const rf_path_direction_t direction)
+{
+	portapack_direction = direction;
+
+	switch (direction) {
+	case RF_PATH_DIRECTION_TX:
+		portapack_radio_path_item_update(
+			RADIO_DRAW_LIST_ITEM_WAVES,
+			&bitmap_waves_tx);
+		portapack_radio_path_item_update(
+			RADIO_DRAW_LIST_ITEM_RF_AMP,
+			portapack_lna_on ? &bitmap_amp_tx : &bitmap_wire_24);
+		portapack_radio_path_item_update(
+			RADIO_DRAW_LIST_ITEM_BB_LNA_AMP,
+			&bitmap_amp_tx);
+		portapack_radio_path_item_update(
+			RADIO_DRAW_LIST_ITEM_BB_VGA_AMP,
+			&bitmap_wire_24);
+		portapack_ui_draw_string(RADIO_DRAW_LIST_ITEM_BB_VGA_AMP, "     ");
+		portapack_ui_set_bb_tx_vga_gain(tx_if_gain);
+		break;
+
+	case RF_PATH_DIRECTION_RX:
+		portapack_radio_path_item_update(
+			RADIO_DRAW_LIST_ITEM_WAVES,
+			&bitmap_waves_rx);
+		portapack_radio_path_item_update(
+			RADIO_DRAW_LIST_ITEM_RF_AMP,
+			portapack_lna_on ? &bitmap_amp_rx : &bitmap_wire_24);
+		portapack_radio_path_item_update(
+			RADIO_DRAW_LIST_ITEM_BB_LNA_AMP,
+			&bitmap_amp_rx);
+		portapack_radio_path_item_update(
+			RADIO_DRAW_LIST_ITEM_BB_VGA_AMP,
+			&bitmap_amp_rx);
+		portapack_ui_set_bb_vga_gain(rx_bb_gain);
+		portapack_ui_set_bb_lna_gain(rx_if_gain);
+		break;
+
+	case RF_PATH_DIRECTION_OFF:
+	default:
+		portapack_radio_path_item_update(
+			RADIO_DRAW_LIST_ITEM_WAVES,
+			&bitmap_blank_24);
+		break;
+	}
+}
+
 const hackrf_ui_t portapack_hackrf_ui = {
 	&portapack_ui_init,
 	&portapack_ui_deinit,
@@ -736,9 +758,9 @@ const hackrf_ui_t portapack_hackrf_ui = {
 	&portapack_ui_operacake_gpio_compatible,
 };
 
-const hackrf_ui_t* portapack_hackrf_ui_init()
+const hackrf_ui_t* portapack_hackrf_ui_init(void)
 {
-	if (portapack()) {
+	if (portapack_present()) {
 		return &portapack_hackrf_ui;
 	} else {
 		return NULL;

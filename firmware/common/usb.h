@@ -20,14 +20,18 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef __USB_H__
-#define __USB_H__
+#pragma once
+
+#include <stdbool.h>
+#include <stdint.h>
 
 // TODO: Refactor to support high performance operations without having to
 // expose usb_transfer_descriptor_t. Or usb_endpoint_prime(). Or, or, or...
 #include <libopencm3/lpc43xx/usb.h>
 
 #include "usb_type.h"
+
+usb_queue_head_t* usb_queue_head(const uint_fast8_t endpoint_address);
 
 void usb_peripheral_reset(void);
 void usb_phy_enable(void);
@@ -50,7 +54,7 @@ void usb_set_address_deferred(
 
 usb_endpoint_t* usb_endpoint_from_address(const uint_fast8_t endpoint_address);
 
-void usb_endpoint_init(const usb_endpoint_t* const endpoint);
+void usb_endpoint_init(const usb_endpoint_t* const endpoint, const bool enable_zlp);
 
 void usb_endpoint_stall(const usb_endpoint_t* const endpoint);
 
@@ -74,5 +78,3 @@ void usb_endpoint_schedule_append(
 	const usb_endpoint_t* const endpoint,
 	usb_transfer_descriptor_t* const tail_td,
 	usb_transfer_descriptor_t* const new_td);
-
-#endif //__USB_H__

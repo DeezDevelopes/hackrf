@@ -19,13 +19,12 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef FIRMWARE_INFO_H
-#define FIRMWARE_INFO_H
+#pragma once
 
 #include <stdint.h>
 
 struct firmware_info_t {
-	char magic[8];
+	__attribute__((nonstring)) char magic[8];
 	uint16_t struct_version;
 	uint16_t dfu_mode;
 	uint32_t supported_platform;
@@ -33,5 +32,3 @@ struct firmware_info_t {
 } __attribute__((packed, aligned(1)));
 
 extern const struct firmware_info_t firmware_info;
-
-#endif

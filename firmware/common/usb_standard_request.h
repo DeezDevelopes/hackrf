@@ -20,11 +20,13 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef __USB_STANDARD_REQUEST_H__
-#define __USB_STANDARD_REQUEST_H__
+#pragma once
 
-#include "usb_type.h"
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "usb_request.h"
+#include "usb_type.h"
 
 void usb_set_configuration_changed_cb(void (*callback)(usb_device_t* const));
 
@@ -47,5 +49,3 @@ usb_transfer_type_t usb_endpoint_descriptor_transfer_type(
 bool usb_set_configuration(
 	usb_device_t* const device,
 	const uint_fast8_t configuration_number);
-
-#endif //__USB_STANDARD_REQUEST_H__

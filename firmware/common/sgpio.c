@@ -22,49 +22,133 @@
  * Boston, MA 02110-1301, USA.
  */
 
+#include <stdint.h>
+
+#include <libopencm3/cm3/common.h>
 #include <libopencm3/lpc43xx/scu.h>
 #include <libopencm3/lpc43xx/sgpio.h>
 
-#include "hackrf_core.h"
 #include "platform_detect.h"
-
+#include "platform_gpio.h"
+#include "platform_scu.h"
 #include "sgpio.h"
+#ifdef IS_NOT_PRALINE
+	#include "clock_io.h"
+#endif
+
+/* Driver configuration instance. */
+sgpio_config_t sgpio_config = {
+	.slice_mode_multislice = true,
+};
 
 static void update_q_invert(sgpio_config_t* const config);
 
+void sgpio_pin_shutdown(sgpio_config_t* const config)
+{
+	const platform_scu_t* scu = platform_scu();
+
+#ifdef IS_PRALINE
+	if (IS_PRALINE) {
+		scu_pinmux(scu->PINMUX_SGPIO0, SCU_GPIO_PDN | SCU_CONF_FUNCTION0);
+		scu_pinmux(scu->PINMUX_SGPIO1, SCU_GPIO_PDN | SCU_CONF_FUNCTION0);
+		scu_pinmux(scu->PINMUX_SGPIO2, SCU_GPIO_PDN | SCU_CONF_FUNCTION0);
+		scu_pinmux(scu->PINMUX_SGPIO3, SCU_GPIO_PDN | SCU_CONF_FUNCTION0);
+		scu_pinmux(scu->PINMUX_SGPIO4, SCU_GPIO_PDN | SCU_CONF_FUNCTION4);
+		scu_pinmux(scu->PINMUX_SGPIO5, SCU_GPIO_PDN | SCU_CONF_FUNCTION0);
+		scu_pinmux(scu->PINMUX_SGPIO6, SCU_GPIO_PDN | SCU_CONF_FUNCTION4);
+		scu_pinmux(scu->PINMUX_SGPIO7, SCU_GPIO_PDN | SCU_CONF_FUNCTION0);
+		scu_pinmux(scu->PINMUX_SGPIO8, SCU_GPIO_PDN | SCU_CONF_FUNCTION0);
+		scu_pinmux(scu->PINMUX_SGPIO9, SCU_GPIO_PDN | SCU_CONF_FUNCTION0);
+		scu_pinmux(scu->PINMUX_SGPIO10, SCU_GPIO_PDN | SCU_CONF_FUNCTION0);
+		scu_pinmux(scu->PINMUX_SGPIO11, SCU_GPIO_PDN | SCU_CONF_FUNCTION0);
+		scu_pinmux(scu->PINMUX_SGPIO12, SCU_GPIO_PDN | SCU_CONF_FUNCTION0);
+	}
+#endif
+
+#ifdef IS_H1_R9
+	if (IS_H1_R9) {
+		scu_pinmux(
+			scu->H1R9_TRIGGER_EN,
+			SCU_GPIO_PDN | SCU_CONF_FUNCTION4); /* GPIO5[5] */
+	}
+#endif
+#ifdef IS_NOT_H1_R9
+	if (IS_NOT_H1_R9) {
+		scu_pinmux(
+			scu->TRIGGER_EN,
+			SCU_GPIO_PDN | SCU_CONF_FUNCTION4); /* GPIO5[12] */
+	}
+#endif
+
+	gpio_input(config->gpio_q_invert);
+
+#ifdef IS_NOT_PRALINE
+	if (IS_NOT_PRALINE) {
+		trigger_enable(false);
+		gpio_output(config->gpio_trigger_enable);
+	}
+#endif
+}
+
 void sgpio_configure_pin_functions(sgpio_config_t* const config)
 {
-	scu_pinmux(SCU_PINMUX_SGPIO0, SCU_GPIO_FAST | SCU_CONF_FUNCTION3);
-	scu_pinmux(SCU_PINMUX_SGPIO1, SCU_GPIO_FAST | SCU_CONF_FUNCTION3);
-	scu_pinmux(SCU_PINMUX_SGPIO2, SCU_GPIO_FAST | SCU_CONF_FUNCTION2);
-	scu_pinmux(SCU_PINMUX_SGPIO3, SCU_GPIO_FAST | SCU_CONF_FUNCTION2);
-	scu_pinmux(SCU_PINMUX_SGPIO4, SCU_GPIO_FAST | SCU_CONF_FUNCTION2);
-	scu_pinmux(SCU_PINMUX_SGPIO5, SCU_GPIO_FAST | SCU_CONF_FUNCTION2);
-	scu_pinmux(SCU_PINMUX_SGPIO6, SCU_GPIO_FAST | SCU_CONF_FUNCTION0);
-	scu_pinmux(SCU_PINMUX_SGPIO7, SCU_GPIO_FAST | SCU_CONF_FUNCTION6);
-	scu_pinmux(SCU_PINMUX_SGPIO8, SCU_GPIO_FAST | SCU_CONF_FUNCTION6);
-	scu_pinmux(SCU_PINMUX_SGPIO9, SCU_GPIO_FAST | SCU_CONF_FUNCTION7);
-	scu_pinmux(SCU_PINMUX_SGPIO10, SCU_GPIO_FAST | SCU_CONF_FUNCTION6);
-	scu_pinmux(SCU_PINMUX_SGPIO11, SCU_GPIO_FAST | SCU_CONF_FUNCTION6);
-	scu_pinmux(SCU_PINMUX_SGPIO12, SCU_GPIO_FAST | SCU_CONF_FUNCTION0); /* GPIO0[13] */
-	scu_pinmux(SCU_PINMUX_SGPIO14, SCU_GPIO_FAST | SCU_CONF_FUNCTION4); /* GPIO5[13] */
-	scu_pinmux(SCU_PINMUX_SGPIO15, SCU_GPIO_FAST | SCU_CONF_FUNCTION4); /* GPIO5[14] */
+	const platform_gpio_t* gpio = platform_gpio();
+	const platform_scu_t* scu = platform_scu();
 
-	if (detected_platform() == BOARD_ID_HACKRF1_R9) {
+	config->gpio_q_invert = gpio->q_invert;
+
+#ifdef IS_NOT_PRALINE
+	if (IS_NOT_PRALINE) {
+		config->gpio_trigger_enable = gpio->trigger_enable;
+	}
+#endif
+
+#ifdef IS_H1_R9
+	if (IS_H1_R9) {
+		config->gpio_trigger_enable = gpio->h1r9_trigger_enable;
+	}
+#endif
+
+	scu_pinmux(scu->PINMUX_SGPIO0, scu->PINMUX_SGPIO0_PINCFG);
+	scu_pinmux(scu->PINMUX_SGPIO1, scu->PINMUX_SGPIO1_PINCFG);
+	scu_pinmux(scu->PINMUX_SGPIO2, scu->PINMUX_SGPIO2_PINCFG);
+	scu_pinmux(scu->PINMUX_SGPIO3, scu->PINMUX_SGPIO3_PINCFG);
+	scu_pinmux(scu->PINMUX_SGPIO4, scu->PINMUX_SGPIO4_PINCFG);
+	scu_pinmux(scu->PINMUX_SGPIO5, scu->PINMUX_SGPIO5_PINCFG);
+	scu_pinmux(scu->PINMUX_SGPIO6, scu->PINMUX_SGPIO6_PINCFG);
+	scu_pinmux(scu->PINMUX_SGPIO7, scu->PINMUX_SGPIO7_PINCFG);
+	scu_pinmux(scu->PINMUX_SGPIO8, scu->PINMUX_SGPIO8_PINCFG);
+	scu_pinmux(scu->PINMUX_SGPIO9, scu->PINMUX_SGPIO9_PINCFG);
+	scu_pinmux(scu->PINMUX_SGPIO10, scu->PINMUX_SGPIO10_PINCFG);
+	scu_pinmux(scu->PINMUX_SGPIO11, scu->PINMUX_SGPIO11_PINCFG);
+	scu_pinmux(scu->PINMUX_SGPIO12, scu->PINMUX_SGPIO12_PINCFG); /* GPIO0[13] */
+	scu_pinmux(scu->PINMUX_SGPIO14, scu->PINMUX_SGPIO14_PINCFG); /* GPIO5[13] */
+	scu_pinmux(scu->PINMUX_SGPIO15, scu->PINMUX_SGPIO15_PINCFG); /* GPIO5[14] */
+
+#ifdef IS_H1_R9
+	if (IS_H1_R9) {
 		scu_pinmux(
-			SCU_H1R9_HW_SYNC_EN,
+			scu->H1R9_TRIGGER_EN,
 			SCU_GPIO_FAST | SCU_CONF_FUNCTION4); /* GPIO5[5] */
-	} else {
+	}
+#endif
+#ifdef IS_NOT_H1_R9
+	if (IS_NOT_H1_R9) {
 		scu_pinmux(
-			SCU_HW_SYNC_EN,
+			scu->TRIGGER_EN,
 			SCU_GPIO_FAST | SCU_CONF_FUNCTION4); /* GPIO5[12] */
 	}
+#endif
 
 	sgpio_cpld_set_mixer_invert(config, 0);
-	hw_sync_enable(0);
-
 	gpio_output(config->gpio_q_invert);
-	gpio_output(config->gpio_hw_sync_enable);
+
+#ifdef IS_NOT_PRALINE
+	if (IS_NOT_PRALINE) {
+		trigger_enable(false);
+		gpio_output(config->gpio_trigger_enable);
+	}
+#endif
 }
 
 void sgpio_set_slice_mode(sgpio_config_t* const config, const bool multi_slice)
@@ -146,11 +230,11 @@ void sgpio_configure(sgpio_config_t* const config, const sgpio_direction_t direc
 		  SGPIO_OUT_MUX_CFG_P_OE_CFG(0)  // gpio_oe (state set by GPIO_OEREG)
 		| SGPIO_OUT_MUX_CFG_P_OUT_CFG(0) // dout_doutm1 (1-bit mode)
 		;
-    SGPIO_OUT_MUX_CFG(10) = // GPIO10: Output: disable
+	SGPIO_OUT_MUX_CFG(10) = // GPIO10: Output: disable
 		  SGPIO_OUT_MUX_CFG_P_OE_CFG(0)  // gpio_oe (state set by GPIO_OEREG)
 		| SGPIO_OUT_MUX_CFG_P_OUT_CFG(4) // gpio_out (level set by GPIO_OUTREG)
 		;
-    SGPIO_OUT_MUX_CFG(11) = // GPIO11: Output: direction
+	SGPIO_OUT_MUX_CFG(11) = // GPIO11: Output: direction
 		  SGPIO_OUT_MUX_CFG_P_OE_CFG(0)  // gpio_oe (state set by GPIO_OEREG)
 		| SGPIO_OUT_MUX_CFG_P_OUT_CFG(4) // gpio_out (level set by GPIO_OUTREG)
 		;

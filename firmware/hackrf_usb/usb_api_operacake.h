@@ -20,11 +20,10 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef __USB_API_OPERACAKE_H__
-#define __USB_API_OPERACAKE_H__
+#pragma once
 
-#include <usb_type.h>
 #include <usb_request.h>
+#include <usb_type.h>
 
 usb_request_status_t usb_vendor_request_operacake_get_boards(
 	usb_endpoint_t* const endpoint,
@@ -53,5 +52,3 @@ usb_request_status_t usb_vendor_request_operacake_get_mode(
 usb_request_status_t usb_vendor_request_operacake_set_dwell_times(
 	usb_endpoint_t* const endpoint,
 	const usb_transfer_stage_t stage);
-
-#endif /* end of include guard: __USB_API_OPERACAKE_H__ */

@@ -21,9 +21,9 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include <stdint.h>
-
 #include "fault_handler.h"
+
+#include <stdint.h>
 
 typedef struct {
 	uint32_t r0;
@@ -73,17 +73,17 @@ __attribute__((used)) void hard_fault_handler_c(uint32_t* args)
 	while (1) {}
 }
 
-void mem_manage_handler()
+void mem_manage_handler(void)
 {
 	while (1) {}
 }
 
-void bus_fault_handler()
+void bus_fault_handler(void)
 {
 	while (1) {}
 }
 
-void usage_fault_handler()
+void usage_fault_handler(void)
 {
 	while (1) {}
 }

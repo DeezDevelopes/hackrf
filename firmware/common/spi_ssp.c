@@ -22,8 +22,28 @@
 
 #include "spi_ssp.h"
 
+#include <stdbool.h>
+
+#include <libopencm3/lpc43xx/memorymap.h>
 #include <libopencm3/lpc43xx/rgu.h>
 #include <libopencm3/lpc43xx/ssp.h>
+
+/* Driver instances. */
+spi_bus_t spi_bus_ssp0 = {
+	.obj = (void*) SSP0_BASE,
+	.start = spi_ssp_start,
+	.stop = spi_ssp_stop,
+	.transfer = spi_ssp_transfer,
+	.transfer_gather = spi_ssp_transfer_gather,
+};
+
+spi_bus_t spi_bus_ssp1 = {
+	.obj = (void*) SSP1_BASE,
+	.start = spi_ssp_start,
+	.stop = spi_ssp_stop,
+	.transfer = spi_ssp_transfer,
+	.transfer_gather = spi_ssp_transfer_gather,
+};
 
 void spi_ssp_start(spi_bus_t* const bus, const void* const _config)
 {
@@ -39,7 +59,7 @@ void spi_ssp_start(spi_bus_t* const bus, const void* const _config)
 
 	SSP_CR1(bus->obj) = 0;
 	SSP_CPSR(bus->obj) = config->clock_prescale_rate;
-	SSP_CR0(bus->obj) = (config->serial_clock_rate << 8) | SSP_CPOL_0_CPHA_0 |
+	SSP_CR0(bus->obj) = (config->serial_clock_rate << 8) | config->spi_mode |
 		SSP_FRAME_SPI | config->data_bits;
 	SSP_CR1(bus->obj) =
 		SSP_SLAVE_OUT_ENABLE | SSP_MASTER | SSP_ENABLE | SSP_MODE_NORMAL;

@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2012-2022 Great Scott Gadgets <info@greatscottgadgets.com>
+Copyright (c) 2012-2026 Great Scott Gadgets <info@greatscottgadgets.com>
 Copyright (c) 2012, Jared Boone <jared@sharebrained.com>
 Copyright (c) 2013, Benjamin Vernoux <titanmkd@gmail.com>
 
@@ -21,8 +21,7 @@ HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABI
 ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef __HACKRF_H__
-#define __HACKRF_H__
+#pragma once
 
 #include <stdint.h>
 #include <sys/types.h>
@@ -638,6 +637,11 @@ enum hackrf_error {
  * @ingroup device
  */
 #define HACKRF_PLATFORM_HACKRF1_R9 (1 << 3)
+/**
+ * HACKRF Praline platform bit in result of @ref hackrf_supported_platform_read
+ * @ingroup device
+ */
+#define HACKRF_PLATFORM_PRALINE (1 << 4)
 
 /**
  * HACKRF board id enum
@@ -666,6 +670,10 @@ enum hackrf_board_id {
 	 * HackRF One (rev. 9 & later. 1-6000MHz, 20MSPS, bias-tee)
 	 */
 	BOARD_ID_HACKRF1_R9 = 4,
+	/**
+	 * Praline
+	 */
+	BOARD_ID_PRALINE = 5,
 	/**
 	 * Unknown board (failed detection)
 	 */
@@ -720,6 +728,31 @@ enum hackrf_board_rev {
 	BOARD_REV_HACKRF1_R10 = 5,
 
 	/**
+	 * praline board revision 0.1, generic
+	 */
+	BOARD_REV_PRALINE_R0_1 = 6,
+	/**
+	 * praline board revision 0.2, generic
+	 */
+	BOARD_REV_PRALINE_R0_2 = 7,
+	/**
+	 * praline board revision 0.1, generic
+	 */
+	BOARD_REV_PRALINE_R0_3 = 8,
+	/**
+	 * praline board revision 1.0, generic
+	 */
+	BOARD_REV_PRALINE_R1_0 = 9,
+	/**
+	 * praline board revision 1.1, generic
+	 */
+	BOARD_REV_PRALINE_R1_1 = 10,
+	/**
+	 * praline board revision 1.2, generic
+	 */
+	BOARD_REV_PRALINE_R1_2 = 11,
+
+	/**
 	 * board revision 6, made by GSG
 	 */
 	BOARD_REV_GSG_HACKRF1_R6 = 0x81,
@@ -739,6 +772,31 @@ enum hackrf_board_rev {
 	 * board revision 10, made by GSG
 	 */
 	BOARD_REV_GSG_HACKRF1_R10 = 0x85,
+
+	/**
+	 * praline board revision 0.1, made by GSG
+	 */
+	BOARD_REV_GSG_PRALINE_R0_1 = 0x86,
+	/**
+	 * praline board revision 0.2, made by GSG
+	 */
+	BOARD_REV_GSG_PRALINE_R0_2 = 0x87,
+	/**
+	 * praline board revision 0.1, made by GSG
+	 */
+	BOARD_REV_GSG_PRALINE_R0_3 = 0x88,
+	/**
+	 * praline board revision 1.0, made by GSG
+	 */
+	BOARD_REV_GSG_PRALINE_R1_0 = 0x89,
+	/**
+	 * praline board revision 1.1, made by GSG
+	 */
+	BOARD_REV_GSG_PRALINE_R1_1 = 0x8a,
+	/**
+	 * praline board revision 1.2, made by GSG
+	 */
+	BOARD_REV_GSG_PRALINE_R1_2 = 0x8b,
 
 	/**
 	 * unknown board revision (detection failed)
@@ -849,6 +907,43 @@ enum sweep_style {
 	 * each step is divided into two interleaved sub-steps, allowing the host to select the best portions of the FFT of each sub-step and discard the rest.
 	 */
 	INTERLEAVED = 1,
+};
+
+/**
+ * P1 SMA connector signal.
+ *
+ * Used by @ref hackrf_set_p1_ctrl, to select the signal for the P1 SMA connector.
+ */
+enum p1_ctrl_signal {
+	P1_SIGNAL_TRIGGER_IN = 0,
+	P1_SIGNAL_AUX_CLK1 = 1,
+	P1_SIGNAL_CLKIN = 2,
+	P1_SIGNAL_TRIGGER_OUT = 3,
+	P1_SIGNAL_P22_CLKIN = 4,
+	P1_SIGNAL_P2_5 = 5,
+	P1_SIGNAL_NC = 6,
+	P1_SIGNAL_AUX_CLK2 = 7,
+};
+
+/**
+ * P2 SMA connector signal.
+ *
+ * Used by @ref hackrf_set_p2_ctrl, to select the signal for the P2 SMA connector.
+ */
+enum p2_ctrl_signal {
+	P2_SIGNAL_CLK3 = 0,
+	P2_SIGNAL_TRIGGER_IN = 2,
+	P2_SIGNAL_TRIGGER_OUT = 3,
+};
+
+/**
+ * CLKIN (clock input) signal.
+ *
+ * Used by @ref hackrf_set_clkin_ctrl, to select the clock input signal CLKIN.
+ */
+enum clkin_ctrl_signal {
+	CLKIN_SIGNAL_P1 = 0,
+	CLKIN_SIGNAL_P22 = 1,
 };
 
 /**
@@ -980,6 +1075,15 @@ typedef struct {
 } hackrf_m0_state;
 
 /**
+ * Self-test results.
+ * @ingroup debug
+ */
+typedef struct {
+	bool pass;
+	char msg[4095];
+} hackrf_selftest;
+
+/**
  * List of connected HackRF devices
  * 
  * Acquired via @ref hackrf_device_list and should be freed via @ref hackrf_device_list_free. Individual devices can be opened via @ref hackrf_device_list_open
@@ -1105,6 +1209,18 @@ extern ADDAPI int ADDCALL hackrf_device_list_open(
 	hackrf_device_list_t* list,
 	int idx,
 	hackrf_device** device);
+
+/**
+ * Check if a listed HackRF device is sharing its USB bus with other devices.
+ *
+ * @param[in] list device list to query
+ * @param[in] idx index of the HackRF device in the list
+ * @return The number of devices sharing the USB bus with the specified HackRF, or a negative error code from @ref hackrf_error
+ *
+ */
+extern ADDAPI int ADDCALL hackrf_device_list_bus_sharing(
+	hackrf_device_list_t* list,
+	int idx);
 
 /**
  * Free a previously allocated @ref hackrf_device_list list.
@@ -1238,6 +1354,42 @@ extern ADDAPI int ADDCALL hackrf_get_m0_state(
 	hackrf_m0_state* value);
 
 /**
+ * Get the results of the device self-test
+ *
+ * @param[in] device device to query
+ * @param[out] self-test results
+ * @return @ref HACKRF_SUCCESS on success or @ref hackrf_error variant
+ * @ingroup debug
+ */
+extern ADDAPI int ADDCALL hackrf_read_selftest(
+	hackrf_device* device,
+	hackrf_selftest* value);
+
+/**
+ * Test the RTC oscillator on the device
+ *
+ * @param[in] device device to query
+ * @param[out] pass RTC oscillator test result
+ * @return @ref HACKRF_SUCCESS on success or @ref hackrf_error variant
+ * @ingroup debug
+ */
+extern ADDAPI int ADDCALL hackrf_test_rtc_osc(hackrf_device* device, bool* pass);
+
+/**
+ * Read a value from an ADC channel
+ *
+ * @param[in] device device to query
+ * @param[in] adc_channel ADC channel, e.g. 0 for ADC0_0. Add 0x80 to use an alternate pin.
+ * @param[out] value Value read from ADC.
+ * @return @ref HACKRF_SUCCESS on success or @ref hackrf_error variant
+ * @ingroup debug
+ */
+extern ADDAPI int ADDCALL hackrf_read_adc(
+	hackrf_device* device,
+	uint8_t adc_channel,
+	uint16_t* value);
+
+/**
  * Set transmit underrun limit
  * 
  * When this limit is set, after the specified number of samples (bytes, not whole IQ pairs) missing the device will automatically return to IDLE mode, thus stopping operation. Useful for handling cases like program/computer crashes or other problems. The default value 0 means no limit.
@@ -1293,6 +1445,22 @@ extern ADDAPI int ADDCALL hackrf_max2837_read(
 	uint16_t* value);
 
 /**
+ * Directly read the registers of the MAX2831 transceiver IC
+ * 
+ * Intended for debugging purposes only!
+ * 
+ * @param[in] device device to query
+ * @param[in] register_number register number to read
+ * @param[out] value value of the specified register
+ * @return @ref HACKRF_SUCCESS on success or @ref hackrf_error variant
+ * @ingroup debug
+ */
+extern ADDAPI int ADDCALL hackrf_max2831_read(
+	hackrf_device* device,
+	uint8_t register_number,
+	uint16_t* value);
+
+/**
  * Directly write the registers of the MAX2837 transceiver IC
  * 
  * Intended for debugging purposes only!
@@ -1304,6 +1472,22 @@ extern ADDAPI int ADDCALL hackrf_max2837_read(
  * @ingroup debug
  */
 extern ADDAPI int ADDCALL hackrf_max2837_write(
+	hackrf_device* device,
+	uint8_t register_number,
+	uint16_t value);
+
+/**
+ * Directly write the registers of the MAX2831 transceiver IC
+ * 
+ * Intended for debugging purposes only!
+ * 
+ * @param device device to write
+ * @param register_number register number to write
+ * @param value value to write in the specified register
+ * @return @ref HACKRF_SUCCESS on success or @ref hackrf_error variant
+ * @ingroup debug
+ */
+extern ADDAPI int ADDCALL hackrf_max2831_write(
 	hackrf_device* device,
 	uint8_t register_number,
 	uint16_t value);
@@ -1388,6 +1572,40 @@ extern ADDAPI int ADDCALL hackrf_rffc5071_write(
 	hackrf_device* device,
 	uint8_t register_number,
 	uint16_t value);
+
+/**
+ * Directly read the registers of the current gateware through the FPGA SPI interface
+ * (HackRF Pro)
+ *
+ * Intended for debugging purposes only!
+ *
+ * @param[in] device device to query
+ * @param[in] register_number register number to read
+ * @param[out] value value of the specified register
+ * @return @ref HACKRF_SUCCESS on success or @ref hackrf_error variant
+ * @ingroup debug
+ */
+extern ADDAPI int ADDCALL hackrf_fpga_read_register(
+	hackrf_device* device,
+	uint8_t register_number,
+	uint8_t* value);
+
+/**
+ * Directly write the registers of the current gateware through the FPGA SPI interface
+ * (HackRF Pro)
+ *
+ * Intended for debugging purposes only!
+ *
+ * @param[in] device device to write
+ * @param[in] register_number register number to write
+ * @param[out] value value to write in the specified register
+ * @return @ref HACKRF_SUCCESS on success or @ref hackrf_error variant
+ * @ingroup debug
+ */
+extern ADDAPI int ADDCALL hackrf_fpga_write_register(
+	hackrf_device* device,
+	uint8_t register_number,
+	uint8_t value);
 
 /**
  * Erase firmware image on the SPI flash
@@ -2100,8 +2318,73 @@ extern ADDAPI int ADDCALL hackrf_set_user_bias_t_opts(
 	hackrf_device* device,
 	hackrf_bias_t_user_settting_req* req);
 
+/**
+ * Select signal for HackRF Pro SMA connector P1.
+ */
+extern ADDAPI int ADDCALL hackrf_set_p1_ctrl(
+	hackrf_device* device,
+	const enum p1_ctrl_signal signal);
+
+/**
+ * Select signal for HackRF Pro SMA connector P2.
+ */
+extern ADDAPI int ADDCALL hackrf_set_p2_ctrl(
+	hackrf_device* device,
+	const enum p2_ctrl_signal signal);
+
+/**
+ * Select signal for HackRF Pro clock input CLKIN.
+ */
+extern ADDAPI int ADDCALL hackrf_set_clkin_ctrl(
+	hackrf_device* device,
+	const enum clkin_ctrl_signal signal);
+
+/**
+ * Enable/disable narrowband filter in HackRF Pro.
+ */
+extern ADDAPI int ADDCALL hackrf_set_narrowband_filter(
+	hackrf_device* device,
+	const uint8_t value);
+
+/**
+ * Program the selected FPGA bitstream in HackRF Pro.
+ */
+extern ADDAPI int ADDCALL hackrf_set_fpga_bitstream(
+	hackrf_device* device,
+	const uint8_t index);
+
+/**
+ * Read a radio configuration register
+ *
+ * @param[in] device device to query
+ * @param[in] bank bank number to read
+ * @param[in] register_number register number to read
+ * @param[out] value value of the specified register
+ * @return @ref HACKRF_SUCCESS on success or @ref hackrf_error variant
+ * @ingroup debug
+ */
+extern ADDAPI int ADDCALL hackrf_radio_read_register(
+	hackrf_device* device,
+	const uint8_t bank,
+	const uint8_t register_number,
+	uint64_t* const value);
+
+/**
+ * Write to a radio configuration register
+ *
+ * @param[in] device device to write
+ * @param[in] bank bank number to write
+ * @param[in] register_number register number to write
+ * @param[out] value value to write in the specified register
+ * @return @ref HACKRF_SUCCESS on success or @ref hackrf_error variant
+ * @ingroup debug
+ */
+extern ADDAPI int ADDCALL hackrf_radio_write_register(
+	hackrf_device* device,
+	const uint8_t bank,
+	const uint8_t register_number,
+	const uint64_t value);
+
 #ifdef __cplusplus
 } // __cplusplus defined.
 #endif
-
-#endif /*__HACKRF_H__*/

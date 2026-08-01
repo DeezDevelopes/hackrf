@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2022 Great Scott Gadgets <info@greatscottgadgets.com>
+ * Copyright 2012-2026 Great Scott Gadgets <info@greatscottgadgets.com>
  * Copyright 2012 Will Code <willcode4@gmail.com>
  * Copyright 2014 Jared Boone <jared@sharebrained.com>
  *
@@ -23,83 +23,201 @@
 
 #include "max283x.h"
 
-#include "gpio.h"
-#include "gpio_lpc.h"
-#include "max2837.h"
-#include "max2837_target.h"
-#include "max2839.h"
-#include "max2839_target.h"
-#include "spi_bus.h"
+#include <stdbool.h>
+#include <string.h>
 
-extern spi_bus_t spi_bus_ssp1;
-static struct gpio_t gpio_max2837_enable = GPIO(2, 6);
-static struct gpio_t gpio_max2837_rx_enable = GPIO(2, 5);
-static struct gpio_t gpio_max2837_tx_enable = GPIO(2, 4);
+#include <libopencm3/lpc43xx/ssp.h>
 
+#include "fixed_point.h"
+#include "platform_detect.h"
+#include "platform_gpio.h"
+
+#ifdef IS_PRALINE
+	#include "max2831_target.h"
+#endif
+#ifdef IS_NOT_PRALINE
+	#include "max2837_target.h"
+#endif
+#ifdef IS_H1_R9
+	#include "max2839_target.h"
+#endif
+
+/* Driver instance. */
+ssp_config_t ssp_config_max283x = {
+	/* FIXME speed up once everything is working reliably */
+	/*
+	// Freq About 0.0498MHz / 49.8KHz => Freq = PCLK / (CPSDVSR * [SCR+1]) with PCLK=PLL1=204MHz
+	const uint8_t serial_clock_rate = 32;
+	const uint8_t clock_prescale_rate = 128;
+	*/
+	// Freq About 4.857MHz => Freq = PCLK / (CPSDVSR * [SCR+1]) with PCLK=PLL1=204MHz
+	.serial_clock_rate = 21,
+	.clock_prescale_rate = 2,
+};
+
+max283x_driver_t max283x = {};
+
+#ifdef IS_PRALINE
+max2831_driver_t max2831 = {
+	.bus = &spi_bus_ssp1,
+	.config = &ssp_config_max283x,
+	.target_init = max2831_target_init,
+	.set_mode = max2831_target_set_mode,
+};
+#endif
+
+#ifdef IS_NOT_PRALINE
 max2837_driver_t max2837 = {
 	.bus = &spi_bus_ssp1,
-	.gpio_enable = &gpio_max2837_enable,
-	.gpio_rx_enable = &gpio_max2837_rx_enable,
-	.gpio_tx_enable = &gpio_max2837_tx_enable,
+	.config = &ssp_config_max283x,
 	.target_init = max2837_target_init,
 	.set_mode = max2837_target_set_mode,
 };
+#endif
 
+#ifdef IS_HACKRF_ONE
 max2839_driver_t max2839 = {
 	.bus = &spi_bus_ssp1,
-	.gpio_enable = &gpio_max2837_enable,
-	.gpio_rxtx = &gpio_max2837_rx_enable,
+	.config = &ssp_config_max283x,
 	.target_init = max2839_target_init,
 	.set_mode = max2839_target_set_mode,
 };
+#endif
 
 /* Initialize chip. */
-void max283x_setup(max283x_driver_t* const drv, max283x_variant_t type)
+void max283x_setup(max283x_driver_t* const drv)
 {
-	drv->type = type;
-	switch (type) {
-	case MAX2837_VARIANT:
-		memcpy(&drv->drv.max2837, &max2837, sizeof(max2837));
-		max2837_setup(&drv->drv.max2837);
-		break;
+	const platform_gpio_t* gpio = platform_gpio();
 
-	case MAX2839_VARIANT:
-		memcpy(&drv->drv.max2839, &max2839, sizeof(max2839));
-		max2839_setup(&drv->drv.max2839);
-		break;
+	/* MAX283x GPIO PinMux */
+	ssp_config_max283x.gpio_select = gpio->max283x_select;
+#ifdef IS_PRALINE
+	if (IS_PRALINE) {
+		ssp_config_max283x.data_bits = SSP_DATA_9BITS;
+		drv->type = MAX2831_VARIANT;
+		max2831.gpio_enable = gpio->max283x_enable;
+		max2831.gpio_rxtx = gpio->max283x_rx_enable;
+		max2831.gpio_rxhp = gpio->max2831_rxhp;
+		max2831.gpio_ld = gpio->max2831_ld;
+		memcpy(&drv->drv.max2831, &max2831, sizeof(max2831));
+		max2831_setup(&drv->drv.max2831);
 	}
+#endif
+#ifdef IS_NOT_PRALINE
+	if (IS_NOT_PRALINE) {
+		ssp_config_max283x.data_bits = SSP_DATA_16BITS;
+	#ifdef IS_H1_R9
+		if (IS_H1_R9) {
+			drv->type = MAX2839_VARIANT;
+			max2839.gpio_enable = gpio->max283x_enable;
+			max2839.gpio_rxtx = gpio->max283x_rx_enable;
+			memcpy(&drv->drv.max2839, &max2839, sizeof(max2839));
+			max2839_setup(&drv->drv.max2839);
+		}
+	#endif
+	#ifdef IS_NOT_H1_R9
+		if (IS_NOT_H1_R9) {
+			drv->type = MAX2837_VARIANT;
+			max2837.gpio_enable = gpio->max283x_enable;
+			max2837.gpio_rx_enable = gpio->max283x_rx_enable;
+			max2837.gpio_tx_enable = gpio->max283x_tx_enable;
+			memcpy(&drv->drv.max2837, &max2837, sizeof(max2837));
+			max2837_setup(&drv->drv.max2837);
+		}
+	#endif
+	}
+#endif
+}
+
+/* Macros to simplify dispatch of variant-specific operations. */
+
+/* clang-format off */
+
+#if UNIVERSAL
+	// UNIVERSAL: all variants
+	#define DISPATCH(_drv, _max2831, _max2837, _max2839) \
+		if (_drv->type == MAX2831_VARIANT) { \
+			_max2831; \
+		} else if (_drv->type == MAX2837_VARIANT) { \
+			_max2837; \
+		} else { \
+			_max2839; \
+		}
+#elif HACKRF_ONE
+	// HACKRF_ONE: MAX2837 and MAX2839 only
+	#define DISPATCH(_drv, _max2831, _max2837, _max2839) \
+		if (_drv->type == MAX2837_VARIANT) { \
+			_max2837; \
+		} else { \
+			_max2839; \
+		}
+#elif PRALINE
+	// PRALINE: MAX2831 only
+	#define DISPATCH(_drv, _max2831, _max2837, _max2839) \
+		(void) drv; \
+		_max2831
+#else
+	// JAWBREAKER, RAD1O: MAX2837 only
+	#define DISPATCH(_drv, _max2831, _max2837, _max2839) \
+		(void) drv; \
+		_max2837
+#endif
+
+#define CALL(_drv, _func, ...) \
+	DISPATCH(drv, \
+		max2831_ ## _func(&_drv->drv.max2831, ##__VA_ARGS__), \
+		max2837_ ## _func(&_drv->drv.max2837, ##__VA_ARGS__), \
+		max2839_ ## _func(&_drv->drv.max2839, ##__VA_ARGS__) \
+	); \
+
+#define RESULT(_drv, _type, _func, ...) ({ \
+	_type _result; \
+	DISPATCH(drv, \
+		_result = max2831_ ## _func(&_drv->drv.max2831, ##__VA_ARGS__), \
+		_result = max2837_ ## _func(&_drv->drv.max2837, ##__VA_ARGS__), \
+		_result = max2839_ ## _func(&_drv->drv.max2839, ##__VA_ARGS__) \
+	); \
+	_result; \
+})
+
+#define CONSTANT(_drv, _type, _name) ({\
+	_type value; \
+	DISPATCH(drv, \
+		value = MAX2831_ ## _name, \
+		value = MAX2837_ ## _name, \
+		value = MAX2839_ ## _name \
+	); \
+	value; \
+})
+
+#define PRALINE_ONLY(_drv, _max2831) DISPATCH(_drv, _max2831, , )
+
+/* clang-format on */
+
+/* Returns the number of registers supported by the driver. */
+uint16_t max283x_num_regs(max283x_driver_t* const drv)
+{
+	return CONSTANT(drv, uint16_t, NUM_REGS);
+}
+
+/* Returns the maximum data register value supported by the driver. */
+uint16_t max283x_data_regs_max_value(max283x_driver_t* const drv)
+{
+	return CONSTANT(drv, uint16_t, DATA_REGS_MAX_VALUE);
 }
 
 /* Read a register via SPI. Save a copy to memory and return
  * value. Mark clean. */
 uint16_t max283x_reg_read(max283x_driver_t* const drv, uint8_t r)
 {
-	switch (drv->type) {
-	case MAX2837_VARIANT:
-		return max2837_reg_read(&drv->drv.max2837, r);
-		break;
-
-	case MAX2839_VARIANT:
-		return max2839_reg_read(&drv->drv.max2839, r);
-		break;
-	}
-
-	return 0;
+	return RESULT(drv, uint16_t, reg_read, r);
 }
 
 /* Write value to register via SPI and save a copy to memory. Mark
  * clean. */
 void max283x_reg_write(max283x_driver_t* const drv, uint8_t r, uint16_t v)
 {
-	switch (drv->type) {
-	case MAX2837_VARIANT:
-		max2837_reg_write(&drv->drv.max2837, r, v);
-		break;
-
-	case MAX2839_VARIANT:
-		max2839_reg_write(&drv->drv.max2839, r, v);
-		break;
-	}
+	CALL(drv, reg_write, r, v);
 }
 
 /* Write all dirty registers via SPI from memory. Mark all clean. Some
@@ -107,174 +225,107 @@ void max283x_reg_write(max283x_driver_t* const drv, uint8_t r, uint16_t v)
  * provided routines for those operations. */
 void max283x_regs_commit(max283x_driver_t* const drv)
 {
-	switch (drv->type) {
-	case MAX2837_VARIANT:
-		max2837_regs_commit(&drv->drv.max2837);
-		break;
-
-	case MAX2839_VARIANT:
-		max2839_regs_commit(&drv->drv.max2839);
-		break;
-	}
+	CALL(drv, regs_commit);
 }
 
 void max283x_set_mode(max283x_driver_t* const drv, const max283x_mode_t new_mode)
 {
-	switch (drv->type) {
-	case MAX2837_VARIANT:
-		max2837_set_mode(&drv->drv.max2837, (max2837_mode_t) new_mode);
-		break;
-
-	case MAX2839_VARIANT:
-		max2839_set_mode(&drv->drv.max2839, (max2839_mode_t) new_mode);
-		break;
-	}
+	DISPATCH(
+		drv,
+		max2831_set_mode(&drv->drv.max2831, (max2831_mode_t) new_mode),
+		max2837_set_mode(&drv->drv.max2837, (max2837_mode_t) new_mode),
+		max2839_set_mode(&drv->drv.max2839, (max2839_mode_t) new_mode));
 }
 
 max283x_mode_t max283x_mode(max283x_driver_t* const drv)
 {
-	switch (drv->type) {
-	case MAX2837_VARIANT:
-		return (max283x_mode_t) max2837_mode(&drv->drv.max2837);
-		break;
-
-	case MAX2839_VARIANT:
-		return (max283x_mode_t) max2839_mode(&drv->drv.max2839);
-		break;
-	}
-
-	return 0;
+	DISPATCH(
+		drv,
+		return (max283x_mode_t) max2831_mode(&drv->drv.max2831),
+		return (max283x_mode_t) max2837_mode(&drv->drv.max2837),
+		return (max283x_mode_t) max2839_mode(&drv->drv.max2839));
 }
-
-//max283x_mode_t max283x_mode(max283x_driver_t* const drv);
-//void max283x_set_mode(max283x_driver_t* const drv, const max283x_mode_t new_mode);
 
 /* Turn on/off all chip functions. Does not control oscillator and CLKOUT */
 void max283x_start(max283x_driver_t* const drv)
 {
-	switch (drv->type) {
-	case MAX2837_VARIANT:
-		max2837_start(&drv->drv.max2837);
-		break;
-
-	case MAX2839_VARIANT:
-		max2839_start(&drv->drv.max2839);
-		break;
-	}
+	CALL(drv, start);
 }
 
 void max283x_stop(max283x_driver_t* const drv)
 {
-	switch (drv->type) {
-	case MAX2837_VARIANT:
-		max2837_stop(&drv->drv.max2837);
-		break;
-
-	case MAX2839_VARIANT:
-		max2839_stop(&drv->drv.max2839);
-		break;
-	}
+	CALL(drv, stop);
 }
 
-/* Set frequency in Hz. Frequency setting is a multi-step function
- * where order of register writes matters. */
-void max283x_set_frequency(max283x_driver_t* const drv, uint32_t freq)
+/* Set frequency in 1/(2**24) Hz. */
+fp_40_24_t max283x_set_frequency(
+	max283x_driver_t* const drv,
+	fp_40_24_t freq,
+	bool program)
 {
-	switch (drv->type) {
-	case MAX2837_VARIANT:
-		max2837_set_frequency(&drv->drv.max2837, freq);
-		break;
-
-	case MAX2839_VARIANT:
-		max2839_set_frequency(&drv->drv.max2839, freq);
-		break;
-	}
+	return RESULT(drv, fp_40_24_t, set_frequency, freq, program);
 }
 
 uint32_t max283x_set_lpf_bandwidth(
 	max283x_driver_t* const drv,
+	const max283x_mode_t mode,
 	const uint32_t bandwidth_hz)
 {
-	switch (drv->type) {
-	case MAX2837_VARIANT:
-		return max2837_set_lpf_bandwidth(&drv->drv.max2837, bandwidth_hz);
-		break;
-
-	case MAX2839_VARIANT:
-		return max2839_set_lpf_bandwidth(&drv->drv.max2839, bandwidth_hz);
-		break;
-	}
-
-	return 0;
+	(void) mode;
+	DISPATCH(
+		drv,
+		return max2831_set_lpf_bandwidth(
+			&drv->drv.max2831,
+			(max2831_mode_t) mode,
+			bandwidth_hz),
+		return max2837_set_lpf_bandwidth(&drv->drv.max2837, bandwidth_hz),
+		return max2839_set_lpf_bandwidth(&drv->drv.max2839, bandwidth_hz));
 }
 
 bool max283x_set_lna_gain(max283x_driver_t* const drv, const uint32_t gain_db)
 {
-	switch (drv->type) {
-	case MAX2837_VARIANT:
-		return max2837_set_lna_gain(&drv->drv.max2837, gain_db);
-		break;
-
-	case MAX2839_VARIANT:
-		return max2839_set_lna_gain(&drv->drv.max2839, gain_db);
-		break;
-	}
-
-	return false;
+	return RESULT(drv, bool, set_lna_gain, gain_db);
 }
 
 bool max283x_set_vga_gain(max283x_driver_t* const drv, const uint32_t gain_db)
 {
-	switch (drv->type) {
-	case MAX2837_VARIANT:
-		return max2837_set_vga_gain(&drv->drv.max2837, gain_db);
-		break;
-
-	case MAX2839_VARIANT:
-		return max2839_set_vga_gain(&drv->drv.max2839, gain_db);
-		break;
-	}
-
-	return false;
+	return RESULT(drv, bool, set_vga_gain, gain_db);
 }
 
 bool max283x_set_txvga_gain(max283x_driver_t* const drv, const uint32_t gain_db)
 {
-	switch (drv->type) {
-	case MAX2837_VARIANT:
-		return max2837_set_txvga_gain(&drv->drv.max2837, gain_db);
-		break;
-
-	case MAX2839_VARIANT:
-		return max2839_set_txvga_gain(&drv->drv.max2839, gain_db);
-		break;
-	}
-
-	return false;
+	return RESULT(drv, bool, set_txvga_gain, gain_db);
 }
 
 void max283x_tx(max283x_driver_t* const drv)
 {
-	switch (drv->type) {
-	case MAX2837_VARIANT:
-		max2837_tx(&drv->drv.max2837);
-		break;
-
-	case MAX2839_VARIANT:
-		max2839_tx(&drv->drv.max2839);
-		break;
-	}
+	CALL(drv, tx);
 }
 
 void max283x_rx(max283x_driver_t* const drv)
 {
-	switch (drv->type) {
-	case MAX2837_VARIANT:
-		max2837_rx(&drv->drv.max2837);
-		break;
+	CALL(drv, rx);
+}
 
-	case MAX2839_VARIANT:
-		max2839_rx(&drv->drv.max2839);
-		break;
-	}
+/* Set MAX2831 receiver high-pass filter corner frequency in Hz */
+void max283x_set_rx_hpf_frequency(
+	max283x_driver_t* const drv,
+	const max283x_rx_hpf_freq_t freq)
+{
+	(void) freq;
+	PRALINE_ONLY(
+		drv,
+		max2831_set_rx_hpf_frequency(
+			&drv->drv.max2831,
+			(max2831_rx_hpf_freq_t) freq));
+}
+
+void max283x_tx_calibration(max283x_driver_t* const drv)
+{
+	PRALINE_ONLY(drv, max2831_tx_calibration(&drv->drv.max2831));
+}
+
+void max283x_rx_calibration(max283x_driver_t* const drv)
+{
+	PRALINE_ONLY(drv, max2831_rx_calibration(&drv->drv.max2831));
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2022 Great Scott Gadgets <info@greatscottgadgets.com>
+ * Copyright 2012-2026 Great Scott Gadgets <info@greatscottgadgets.com>
  * Copyright 2012 Jared Boone
  * Copyright 2013 Benjamin Vernoux
  *
@@ -21,42 +21,75 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include <stddef.h>
+#include <stdbool.h>
+#include <stdint.h>
 #include <string.h>
 
+#include <libopencm3/cm3/nvic.h>
 #include <libopencm3/lpc43xx/ipc.h>
-#include <libopencm3/lpc43xx/m4/nvic.h>
-#include <libopencm3/lpc43xx/rgu.h>
-#include <libopencm3/lpc43xx/timer.h>
 
-#include <streaming.h>
-
-#include "tuning.h"
-
-#include "usb.h"
-#include "usb_standard_request.h"
-
+#include <clock_gen.h>
+#include <clock_io.h>
+#include <cpld_jtag.h>
+#include <cpu_clock.h>
+#include <da7219.h>
+#include <delay.h>
+#include <fixed_point.h>
+#include <hackrf_ui.h>
+#include <i2c_bus.h>
+#include <i2c_lpc.h>
+#include <leds.h>
+#include <operacake.h>
+#include <mixer.h>
+#include <pins.h>
+#include <platform_detect.h>
+#include <power.h>
+#include <radio.h>
+#include <rf_path.h>
 #include <rom_iap.h>
-#include "usb_descriptor.h"
+#include <selftest.h>
+#include <sgpio.h>
+#include <transceiver_mode.h>
+#include <tuning.h>
+#include <usb.h>
+#include <usb_queue.h>
+#include <usb_request.h>
+#include <usb_standard_request.h>
+#include <usb_type.h>
+#ifdef IS_EXPANSION_COMPATIBLE
+	#include <portapack.h>
+#endif
+#ifdef IS_NOT_RAD1O
+	#include <rffc5071.h>
+#endif
+#ifdef IS_PRALINE
+	#include <fpga.h>
+	#if !(defined(DFU_MODE) || defined(RAM_MODE))
+		#include <lz4_buf.h>
+		#include <spi_bus.h>
+		#include <w25q80bv.h>
+	#endif
+#endif
 
-#include "usb_device.h"
-#include "usb_endpoint.h"
+#include "usb_api_adc.h"
 #include "usb_api_board_info.h"
-#include "usb_api_cpld.h"
-#include "usb_api_register.h"
-#include "usb_api_spiflash.h"
+#include "usb_api_m0_state.h"
 #include "usb_api_operacake.h"
-#include "operacake.h"
+#include "usb_api_register.h"
+#include "usb_api_selftest.h"
+#include "usb_api_spiflash.h"
 #include "usb_api_sweep.h"
 #include "usb_api_transceiver.h"
 #include "usb_api_ui.h"
-#include "usb_bulk_buffer.h"
-#include "usb_api_m0_state.h"
-#include "cpld_xc2c.h"
-#include "portapack.h"
-#include "hackrf_ui.h"
-#include "platform_detect.h"
-#include "clkin.h"
+#include "usb_descriptor.h"
+#include "usb_device.h"
+#include "usb_endpoint.h"
+#ifdef IS_PRALINE
+	#include "usb_api_praline.h"
+#endif
+#ifdef IS_NOT_PRALINE
+	#include "usb_api_cpld.h"
+#endif
 
 extern uint32_t __m0_start__;
 extern uint32_t __m0_end__;
@@ -72,12 +105,12 @@ static usb_request_handler_fn vendor_request_handler[] = {
 	usb_vendor_request_read_si5351c,
 	usb_vendor_request_set_sample_rate_frac,
 	usb_vendor_request_set_baseband_filter_bandwidth,
-#ifdef RAD1O
-	NULL, // write_rffc5071 not used
-	NULL, // read_rffc5071 not used
-#else
+#ifdef IS_NOT_RAD1O
 	usb_vendor_request_write_rffc5071,
 	usb_vendor_request_read_rffc5071,
+#else
+	NULL, // write_rffc5071 not used
+	NULL, // read_rffc5071 not used
 #endif
 	usb_vendor_request_erase_spiflash,
 	usb_vendor_request_write_spiflash,
@@ -92,7 +125,7 @@ static usb_request_handler_fn vendor_request_handler[] = {
 	usb_vendor_request_set_vga_gain,
 	usb_vendor_request_set_txvga_gain,
 	NULL, // was set_if_freq
-#ifdef HACKRF_ONE
+#if defined(IS_HACKRF_ONE) || defined(IS_PRALINE)
 	usb_vendor_request_set_antenna_enable,
 #else
 	NULL,
@@ -109,7 +142,7 @@ static usb_request_handler_fn vendor_request_handler[] = {
 	usb_vendor_request_spiflash_status,
 	usb_vendor_request_spiflash_clear_status,
 	usb_vendor_request_operacake_gpio_test,
-#ifdef HACKRF_ONE
+#ifdef IS_HACKRF_ONE
 	usb_vendor_request_cpld_checksum,
 #else
 	NULL,
@@ -126,6 +159,29 @@ static usb_request_handler_fn vendor_request_handler[] = {
 	usb_vendor_request_read_supported_platform,
 	usb_vendor_request_set_leds,
 	usb_vendor_request_user_config_set_bias_t_opts,
+#ifdef IS_PRALINE
+	usb_vendor_request_write_fpga_reg,
+	usb_vendor_request_read_fpga_reg,
+	usb_vendor_request_p2_ctrl,
+	usb_vendor_request_p1_ctrl,
+	usb_vendor_request_set_narrowband_filter,
+	usb_vendor_request_set_fpga_bitstream,
+	usb_vendor_request_clkin_ctrl,
+#else
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+#endif
+	usb_vendor_request_read_selftest,
+	usb_vendor_request_adc_read,
+	usb_vendor_request_test_rtc_osc,
+	usb_vendor_request_write_radio_reg,
+	usb_vendor_request_read_radio_reg,
+	usb_vendor_request_get_buffer_size,
 };
 
 static const uint32_t vendor_request_handler_count =
@@ -166,8 +222,8 @@ void usb_configuration_changed(usb_device_t* const device)
 		/* Configuration number equal 0 means usb bus reset. */
 		led_off(LED1);
 	}
-	usb_endpoint_init(&usb_endpoint_bulk_in);
-	usb_endpoint_init(&usb_endpoint_bulk_out);
+	usb_endpoint_init(&usb_endpoint_bulk_in, false);
+	usb_endpoint_init(&usb_endpoint_bulk_out, false);
 }
 
 void usb_set_descriptor_by_serial_number(void)
@@ -200,19 +256,7 @@ void usb_set_descriptor_by_serial_number(void)
 	}
 }
 
-static bool cpld_jtag_sram_load(jtag_t* const jtag)
-{
-	cpld_jtag_take(jtag);
-	cpld_xc2c64a_jtag_sram_write(jtag, &cpld_hackrf_program_sram);
-	const bool success = cpld_xc2c64a_jtag_sram_verify(
-		jtag,
-		&cpld_hackrf_program_sram,
-		&cpld_hackrf_verify);
-	cpld_jtag_release(jtag);
-	return success;
-}
-
-static void m0_rom_to_ram()
+static void m0_rom_to_ram(void)
 {
 	uint32_t* dest = &__ram_m0_start__;
 
@@ -226,34 +270,262 @@ static void m0_rom_to_ram()
 	memcpy(dest, (uint32_t*) (base + src), len);
 }
 
+#if defined(IS_PRALINE) && !(defined(DFU_MODE) || defined(RAM_MODE))
+extern uint32_t _binary_fpga_bin_start;
+
+void fpga_loader_setup(void)
+{
+	w25q80bv_setup(&spi_flash);
+}
+
+void fpga_loader_read(uint32_t addr, uint32_t size, uint8_t* buf)
+{
+	w25q80bv_read(&spi_flash, addr, size, buf);
+}
+
+struct fpga_loader_t fpga_loader = {
+	.start_addr = (uint32_t) &_binary_fpga_bin_start,
+	.setup = fpga_loader_setup,
+	.read = fpga_loader_read,
+	.in_buffer = lz4_in_buf,
+	.out_buffer = lz4_out_buf,
+};
+#endif
+
+void radio_changed(const uint32_t changed)
+{
+	const uint64_t opmode = radio_reg_read(&radio, RADIO_BANK_APPLIED, RADIO_OPMODE);
+
+	if (changed & (1 << RADIO_OPMODE)) {
+		switch (opmode) {
+		case TRANSCEIVER_MODE_TX:
+		case TRANSCEIVER_MODE_SS:
+			sgpio_configure(&sgpio_config, SGPIO_DIRECTION_TX);
+			hackrf_ui()->set_direction(RF_PATH_DIRECTION_TX);
+			break;
+		case TRANSCEIVER_MODE_RX:
+		case TRANSCEIVER_MODE_RX_SWEEP:
+			sgpio_configure(&sgpio_config, SGPIO_DIRECTION_RX);
+			hackrf_ui()->set_direction(RF_PATH_DIRECTION_RX);
+			break;
+		default:
+			sgpio_configure(&sgpio_config, SGPIO_DIRECTION_RX);
+			hackrf_ui()->set_direction(RF_PATH_DIRECTION_OFF);
+			break;
+		}
+	}
+	if (changed & (1 << RADIO_SAMPLE_RATE)) {
+		const uint64_t rate =
+			radio_reg_read(&radio, RADIO_BANK_APPLIED, RADIO_SAMPLE_RATE);
+		hackrf_ui()->set_sample_rate(rate / SR_FP_ONE_HZ);
+	}
+	if (changed & (RADIO_REG_GROUP_FREQ)) {
+		const uint64_t img_reject =
+			radio_reg_read(&radio, RADIO_BANK_APPLIED, RADIO_IMAGE_REJECT);
+		const uint64_t freq_lo =
+			radio_reg_read(&radio, RADIO_BANK_APPLIED, RADIO_FREQUENCY_LO);
+		const uint64_t freq_if =
+			radio_reg_read(&radio, RADIO_BANK_APPLIED, RADIO_FREQUENCY_IF);
+		const bool invert_spectrum =
+			((img_reject == RF_PATH_FILTER_LOW_PASS) && (freq_lo > freq_if));
+		sgpio_cpld_set_mixer_invert(&sgpio_config, invert_spectrum);
+	}
+	if (changed & (1 << RADIO_FREQUENCY_RF)) {
+		const uint64_t freq =
+			radio_reg_read(&radio, RADIO_BANK_APPLIED, RADIO_FREQUENCY_RF);
+		if (opmode != TRANSCEIVER_MODE_RX_SWEEP) {
+			hackrf_ui()->set_frequency(freq / FP_ONE_HZ);
+		}
+#ifdef IS_EXPANSION_COMPATIBLE
+		if (IS_EXPANSION_COMPATIBLE) {
+			operacake_set_range(freq / FP_ONE_MHZ);
+		}
+#endif
+	}
+	if (changed & (1 << RADIO_IMAGE_REJECT)) {
+		if (opmode != TRANSCEIVER_MODE_RX_SWEEP) {
+			const uint64_t img_reject = radio_reg_read(
+				&radio,
+				RADIO_BANK_APPLIED,
+				RADIO_IMAGE_REJECT);
+			hackrf_ui()->set_filter(img_reject);
+		}
+	}
+	if (changed &
+	    ((1 << RADIO_BB_BANDWIDTH_TX) | (1 << RADIO_BB_BANDWIDTH_RX) |
+	     (1 << RADIO_OPMODE))) {
+		uint64_t bw;
+
+		switch (opmode) {
+		case TRANSCEIVER_MODE_TX:
+		case TRANSCEIVER_MODE_SS:
+			bw = radio_reg_read(
+				&radio,
+				RADIO_BANK_APPLIED,
+				RADIO_BB_BANDWIDTH_TX);
+			break;
+		default:
+			bw = radio_reg_read(
+				&radio,
+				RADIO_BANK_APPLIED,
+				RADIO_BB_BANDWIDTH_RX);
+		}
+		hackrf_ui()->set_filter_bw(bw);
+	}
+	if (changed &
+	    ((1 << RADIO_GAIN_TX_RF) | (1 << RADIO_GAIN_RX_RF) | (1 << RADIO_OPMODE))) {
+		const uint64_t tx_rf =
+			radio_reg_read(&radio, RADIO_BANK_APPLIED, RADIO_GAIN_TX_RF);
+		const uint64_t rx_rf =
+			radio_reg_read(&radio, RADIO_BANK_APPLIED, RADIO_GAIN_RX_RF);
+		bool enable;
+
+		switch (opmode) {
+		case TRANSCEIVER_MODE_TX:
+		case TRANSCEIVER_MODE_SS:
+			enable = tx_rf;
+			break;
+		case TRANSCEIVER_MODE_RX:
+		case TRANSCEIVER_MODE_RX_SWEEP:
+			enable = rx_rf;
+			break;
+		default:
+			enable = false;
+		}
+		hackrf_ui()->set_lna_power(enable);
+	}
+	if (changed & (1 << RADIO_GAIN_TX_IF)) {
+		const uint64_t tx_if =
+			radio_reg_read(&radio, RADIO_BANK_APPLIED, RADIO_GAIN_TX_IF);
+		hackrf_ui()->set_bb_tx_vga_gain(tx_if);
+	}
+	if (changed & (1 << RADIO_GAIN_RX_IF)) {
+		const uint64_t rx_if =
+			radio_reg_read(&radio, RADIO_BANK_APPLIED, RADIO_GAIN_RX_IF);
+		hackrf_ui()->set_bb_lna_gain(rx_if);
+	}
+	if (changed & (1 << RADIO_GAIN_RX_BB)) {
+		const uint64_t rx_bb =
+			radio_reg_read(&radio, RADIO_BANK_APPLIED, RADIO_GAIN_RX_BB);
+		hackrf_ui()->set_bb_vga_gain(rx_bb);
+	}
+	if (changed & (1 << RADIO_BIAS_TEE)) {
+		const uint64_t enable =
+			radio_reg_read(&radio, RADIO_BANK_APPLIED, RADIO_BIAS_TEE);
+		hackrf_ui()->set_antenna_bias(enable);
+	}
+}
+
 int main(void)
 {
 	// Copy M0 image from ROM before SPIFI is disabled
 	m0_rom_to_ram();
 
+	// This will be cleared if any self-test check fails.
+	selftest.report.pass = true;
+
+	// Detect hardware platform before we do anything else.
 	detect_hardware_platform();
-	pin_setup();
-	enable_1v8_power();
-#ifdef HACKRF_ONE
-	// Set up mixer before enabling RF power, because its
-	// GPO is used to control the antenna bias tee.
-	mixer_setup(&mixer);
+	board_id_t board_id = detected_platform();
+
+	i2c_bus_start(&i2c0, &i2c_config_fast_clock);
+
+	pins_shutdown();
+	sgpio_pin_shutdown(&sgpio_config);
+	rf_path_pin_shutdown();
+	if (board_id != BOARD_ID_RAD1O) {
+		clock_gen_shutdown();
+	}
+	delay_ms(10);
+	pins_setup();
+	cpld_jtag_pin_setup();
+	mixer_bus_setup(&mixer);
+	sgpio_configure_pin_functions(&sgpio_config);
+	rf_path_pin_setup(&rf_path);
+#ifdef IS_PRALINE
+	if (IS_PRALINE) {
+		enable_3v3aux_power();
+	#if !defined(DFU_MODE) && !defined(RAM_MODE)
+		enable_1v2_power();
+		enable_rf_power();
+		/*
+		 * On Praline, the clock generator power supply comes from 3V3FPGA
+		 * which is enabled when 1V2FPGA is turned on.
+		 */
+		clock_gen_init();
+	#endif
+	}
 #endif
-#if (defined HACKRF_ONE || defined RAD1O)
-	enable_rf_power();
+#ifdef IS_NOT_PRALINE
+	if (IS_NOT_PRALINE) {
+		enable_1v8_power();
+	#ifdef IS_NOT_RAD1O
+		if (IS_NOT_RAD1O) {
+			/*
+			 * On rad1o, the clock generator power supply comes from the RF supply
+			 * which is enabled later. On H1 and Jawbreaker, the clock generator is
+			 * on the main 3V3 supply.
+			 */
+			clock_gen_init();
+		}
+	#endif
+	}
+#endif
+	tuning_setup();
+#ifdef IS_HACKRF_ONE
+	if (IS_HACKRF_ONE) {
+		// Set up mixer before enabling RF power, because its
+		// GPO is used to control the antenna bias tee.
+		mixer_setup(&mixer, RFFC5071_VARIANT);
+	}
+#endif
+#ifdef IS_H1_OR_RAD1O
+	if (IS_H1_OR_RAD1O) {
+		enable_rf_power();
+	}
+#endif
+#ifdef IS_RAD1O
+	if (IS_RAD1O) {
+		clock_gen_init();
+	}
 #endif
 	cpu_clock_init();
+
+	/* Clock speed has changed, adjust I2C clock */
+	i2c_bus_start(&i2c0, &i2c_config_fast_clock);
 
 	/* Wake the M0 */
 	ipc_halt_m0();
 	ipc_start_m0((uint32_t) &__ram_m0_start__);
 
-	if (!cpld_jtag_sram_load(&jtag_cpld)) {
-		halt_and_flash(6000000);
+#ifdef IS_NOT_PRALINE
+	if (IS_NOT_PRALINE) {
+		if (!cpld_jtag_sram_load(&jtag_cpld)) {
+			halt_and_flash(1000);
+		}
 	}
+#endif
+#ifdef IS_PRALINE
+	if (IS_PRALINE) {
+	#if defined(DFU_MODE) || defined(RAM_MODE)
+		selftest.fpga_image_load = SKIPPED;
+		selftest.report.pass = false;
+	#else
+		fpga_image_load(&fpga_loader, 0);
+	#endif
+		delay_us(100);
+		fpga_spi_selftest();
+		fpga_sgpio_selftest();
+	}
+#endif
 
-#ifdef HACKRF_ONE
-	portapack_init();
+	radio.update_cb = radio_changed;
+	radio_init(&radio);
+
+#ifdef IS_EXPANSION_COMPATIBLE
+	if (IS_EXPANSION_COMPATIBLE) {
+		portapack_init();
+	}
 #endif
 
 #ifndef DFU_MODE
@@ -263,6 +535,30 @@ int main(void)
 	usb_set_configuration_changed_cb(usb_configuration_changed);
 	usb_peripheral_reset();
 
+#ifdef IS_HACKRF_ONE
+	if (IS_HACKRF_ONE) {
+		memcpy(&usb_device,
+		       &usb_device_hackrf_one,
+		       sizeof(usb_device_hackrf_one));
+	}
+#endif
+#ifdef IS_JAWBREAKER
+	if (IS_JAWBREAKER) {
+		memcpy(&usb_device,
+		       &usb_device_jawbreaker,
+		       sizeof(usb_device_jawbreaker));
+	}
+#endif
+#ifdef IS_RAD1O
+	if (IS_RAD1O) {
+		memcpy(&usb_device, &usb_device_rad1o, sizeof(usb_device_rad1o));
+	}
+#endif
+#ifdef IS_PRALINE
+	if (IS_PRALINE) {
+		memcpy(&usb_device, &usb_device_praline, sizeof(usb_device_praline));
+	}
+#endif
 	usb_device_init(0, &usb_device);
 
 	usb_queue_init(&usb_endpoint_control_out_queue);
@@ -270,8 +566,8 @@ int main(void)
 	usb_queue_init(&usb_endpoint_bulk_out_queue);
 	usb_queue_init(&usb_endpoint_bulk_in_queue);
 
-	usb_endpoint_init(&usb_endpoint_control_out);
-	usb_endpoint_init(&usb_endpoint_control_in);
+	usb_endpoint_init(&usb_endpoint_control_out, false);
+	usb_endpoint_init(&usb_endpoint_control_in, true);
 
 	nvic_set_priority(NVIC_USB0_IRQ, 255);
 
@@ -281,6 +577,19 @@ int main(void)
 
 	rf_path_init(&rf_path);
 
+#ifdef IS_NOT_RAD1O
+	rffc5071_lock_test(&mixer.rffc5071);
+#endif
+
+#ifdef IS_PRALINE
+	if (IS_PRALINE) {
+		fpga_if_xcvr_selftest();
+	}
+#endif
+
+	if (da7219_detect()) {
+		operacake_skip_i2c_address(DA7219_ADDRESS);
+	}
 	bool operacake_allow_gpio;
 	if (hackrf_ui()->operacake_gpio_compatible()) {
 		operacake_allow_gpio = true;
@@ -307,6 +616,7 @@ int main(void)
 		nvic_disable_irq(NVIC_USB0_IRQ);
 		request = transceiver_request;
 		nvic_enable_irq(NVIC_USB0_IRQ);
+		radio_update(&radio);
 
 		switch (request.mode) {
 		case TRANSCEIVER_MODE_OFF:
@@ -322,7 +632,11 @@ int main(void)
 			sweep_mode(request.seq);
 			break;
 		case TRANSCEIVER_MODE_CPLD_UPDATE:
-			cpld_update();
+#ifdef IS_NOT_PRALINE
+			if (IS_NOT_PRALINE) {
+				cpld_update();
+			}
+#endif
 			break;
 		default:
 			break;

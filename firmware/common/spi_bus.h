@@ -20,8 +20,7 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef __SPI_BUS_H__
-#define __SPI_BUS_H__
+#pragma once
 
 #include <stddef.h>
 
@@ -30,27 +29,30 @@ typedef struct {
 	const size_t count;
 } spi_transfer_t;
 
-struct spi_bus_t;
-typedef struct spi_bus_t spi_bus_t;
-
-struct spi_bus_t {
+typedef struct _spi_bus_t {
 	void* const obj;
 	const void* config;
-	void (*start)(spi_bus_t* const bus, const void* const config);
-	void (*stop)(spi_bus_t* const bus);
-	void (*transfer)(spi_bus_t* const bus, void* const data, const size_t count);
+	void (*start)(struct _spi_bus_t* const bus, const void* const config);
+	void (*stop)(struct _spi_bus_t* const bus);
+	void (*transfer)(
+		struct _spi_bus_t* const bus,
+		void* const data,
+		const size_t count);
 	void (*transfer_gather)(
-		spi_bus_t* const bus,
+		struct _spi_bus_t* const bus,
 		const spi_transfer_t* const transfers,
 		const size_t count);
-};
+} spi_bus_t;
 
 void spi_bus_start(spi_bus_t* const bus, const void* const config);
 void spi_bus_stop(spi_bus_t* const bus);
-void spi_bus_transfer(spi_bus_t* const bus, void* const data, const size_t count);
+void spi_bus_transfer(
+	spi_bus_t* const bus,
+	const void* const config,
+	void* const data,
+	const size_t count);
 void spi_bus_transfer_gather(
 	spi_bus_t* const bus,
+	const void* const config,
 	const spi_transfer_t* const transfers,
 	const size_t count);
-
-#endif /*__SPI_BUS_H__*/

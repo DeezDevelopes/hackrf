@@ -23,17 +23,19 @@
 
 #include "usb_api_cpld.h"
 
-#include <hackrf_core.h>
-#include <cpld_jtag.h>
-#include <cpld_xc2c.h>
-#include <usb_queue.h>
-
-#include "usb_endpoint.h"
-
-#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+
+#include <cpld_jtag.h>
+#include <cpld_xc2c.h>
+#include <leds.h>
+#include <platform_detect.h>
+#include <usb_queue.h>
+#include <usb_request.h>
+#include <usb_type.h>
+
+#include "usb_endpoint.h"
 
 uint8_t cpld_xsvf_buffer[512];
 volatile bool cpld_wait = false;
@@ -74,7 +76,7 @@ void cpld_update(void)
 		cpld_xsvf_buffer,
 		refill_cpld_buffer);
 	if (error == 0) {
-		halt_and_flash(6000000);
+		halt_and_flash(1000);
 	} else {
 		/* LED3 (Red) steady on error */
 		led_on(LED3);
@@ -88,6 +90,15 @@ usb_request_status_t usb_vendor_request_cpld_checksum(
 {
 	static uint32_t cpld_crc;
 	uint8_t length;
+
+	switch (detected_platform()) {
+	case BOARD_ID_HACKRF1_OG:
+	case BOARD_ID_HACKRF1_R9:
+		// supported
+		break;
+	default:
+		return USB_REQUEST_STATUS_STALL;
+	}
 
 	if (stage == USB_TRANSFER_STAGE_SETUP) {
 		cpld_jtag_take(&jtag_cpld);

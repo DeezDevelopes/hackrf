@@ -22,14 +22,19 @@
 
 #include "ui_rad1o.h"
 
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "clock_gen.h"
+#include "rf_path.h"
+#include "transceiver_mode.h"
+
 #include "rad1o/display.h"
 #include "rad1o/draw.h"
 #include "rad1o/print.h"
 #include "rad1o/render.h"
 #include "rad1o/smallfonts.h"
 #include "rad1o/ubuntu18.h"
-
-#include <stdio.h>
 
 static uint64_t freq = 0;
 static uint32_t sample_rate = 0;
@@ -51,20 +56,22 @@ static bool enabled = false;
 #define WHITE      0b11111111
 #define GREY       0b01001101
 
+#define DIV_ROUND_CLOSEST(n, d) ((n + (d / 2)) / d)
+
+static void print_hz(char* fmt, uint64_t hz)
+{
+	uint32_t mhz, khz;
+	mhz = DIV_ROUND_CLOSEST(hz, 1000000);
+	hz -= mhz * 1000000;
+	khz = DIV_ROUND_CLOSEST(hz, 1000);
+	rad1o_lcdPrint(fmt, (unsigned int) mhz, (unsigned int) khz);
+}
+
 static void draw_frequency(void)
 {
-	char tmp[100];
-	uint32_t mhz;
-	uint32_t khz;
-
-	mhz = freq / 1000000;
-	khz = (freq - mhz * 1000000) / 1000;
-
 	rad1o_setTextColor(BLACK, GREEN);
 	rad1o_setIntFont(&Font_Ubuntu18pt);
-	sprintf(tmp, "%4u.%03u", (unsigned int) mhz, (unsigned int) khz);
-	rad1o_lcdPrint(tmp);
-
+	print_hz("%4u.%03u", freq);
 	rad1o_setIntFont(&Font_7x8);
 	rad1o_lcdMoveCrsr(1, 18 - 7);
 	rad1o_lcdPrint("MHz");
@@ -104,10 +111,6 @@ static void draw_tx_rx(void)
 
 static void ui_update(void)
 {
-	char tmp[100];
-	uint32_t mhz;
-	uint32_t khz;
-
 	if (!enabled) {
 		return;
 	}
@@ -147,18 +150,12 @@ static void ui_update(void)
 	rad1o_setTextColor(BLACK, WHITE);
 	rad1o_lcdSetCrsr(2, 71);
 	rad1o_lcdPrint("Rate:   ");
-	mhz = sample_rate / 1000000;
-	khz = (sample_rate - mhz * 1000000) / 1000;
-	sprintf(tmp, "%2u.%03u MHz", (unsigned int) mhz, (unsigned int) khz);
-	rad1o_lcdPrint(tmp);
+	print_hz("%2u.%03u MHz", sample_rate);
 	rad1o_lcdNl();
 
 	rad1o_lcdMoveCrsr(2, 0);
 	rad1o_lcdPrint("Filter: ");
-	mhz = filter_bw / 1000000;
-	khz = (filter_bw - mhz * 1000000) / 1000;
-	sprintf(tmp, "%2u.%03u MHz", (unsigned int) mhz, (unsigned int) khz);
-	rad1o_lcdPrint(tmp);
+	print_hz("%2u.%03u MHz", filter_bw);
 	rad1o_lcdNl();
 
 	rad1o_drawHLine(88, 0, RESX - 1, WHITE);
@@ -182,8 +179,7 @@ static void ui_update(void)
 	if (direction == RF_PATH_DIRECTION_TX) {
 		rad1o_setTextColor(BLACK, RED);
 	}
-	sprintf(tmp, " TX: %u dB", (unsigned int) bbtxvga_gain);
-	rad1o_lcdPrint(tmp);
+	rad1o_lcdPrint(" TX: %u dB", (unsigned int) bbtxvga_gain);
 	rad1o_lcdNl();
 
 	rad1o_lcdMoveCrsr(2, 0);
@@ -191,18 +187,13 @@ static void ui_update(void)
 	if (direction == RF_PATH_DIRECTION_RX) {
 		rad1o_setTextColor(BLACK, GREEN);
 	}
-	sprintf(tmp, "LNA: %2u dB", (unsigned int) bblna_gain);
-	rad1o_lcdPrint(tmp);
+	rad1o_lcdPrint("LNA: %2u dB", (unsigned int) bblna_gain);
 	rad1o_lcdNl();
 	rad1o_lcdMoveCrsr(2, 0);
-	sprintf(tmp, "VGA: %2u dB", (unsigned int) bbvga_gain);
-	rad1o_lcdPrint(tmp);
+	rad1o_lcdPrint("VGA: %2u dB", (unsigned int) bbvga_gain);
 	rad1o_lcdNl();
 
 	rad1o_lcdDisplay();
-
-	// Don't ask...
-	ssp1_set_mode_max283x();
 }
 
 static void rad1o_ui_init(void)
@@ -216,8 +207,6 @@ static void rad1o_ui_deinit(void)
 {
 	rad1o_lcdDeInit();
 	enabled = false;
-	// Don't ask...
-	ssp1_set_mode_max283x();
 }
 
 static void rad1o_ui_set_frequency(uint64_t frequency)

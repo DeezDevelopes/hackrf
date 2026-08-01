@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2022 Great Scott Gadgets <info@greatscottgadgets.com>
+ * Copyright 2012-2026 Great Scott Gadgets <info@greatscottgadgets.com>
  * Copyright 2012 Jared Boone
  * Copyright 2013 Benjamin Vernoux
  *
@@ -21,18 +21,24 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef __TUNING_H__
-#define __TUNING_H__
+#pragma once
 
+#include "fixed_point.h"
 #include "rf_path.h"
 
-#include <stdint.h>
-#include <stdbool.h>
+void tuning_setup(void);
 
-bool set_freq(const uint64_t freq);
-bool set_freq_explicit(
-	const uint64_t if_freq_hz,
-	const uint64_t lo_freq_hz,
-	const rf_path_filter_t path);
+/**
+ * Select fixed or graduated IF for a given RF and image reject filter.
+ */
+fp_40_24_t select_graduated_if(fp_40_24_t freq_rf, rf_path_filter_t img_reject);
 
-#endif /*__TUNING_H__*/
+/**
+ * Select image reject filter appropriate for a given RF.
+ */
+rf_path_filter_t select_img_reject(fp_40_24_t freq_rf);
+
+/**
+ * Restrict RF to range appropriate for a given image reject filter.
+ */
+fp_40_24_t restrict_rf(fp_40_24_t freq_rf, rf_path_filter_t img_reject);

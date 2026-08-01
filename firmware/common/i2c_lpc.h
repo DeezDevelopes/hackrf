@@ -20,17 +20,16 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef __I2C_LPC_H__
-#define __I2C_LPC_H__
+#pragma once
 
-#include <stdint.h>
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include "i2c_bus.h"
 
-typedef struct i2c_lpc_config_t {
-	const uint16_t duty_cycle_count;
+typedef struct {
+	const uint16_t clock_khz;
 } i2c_lpc_config_t;
 
 void i2c_lpc_start(i2c_bus_t* const bus, const void* const config);
@@ -44,4 +43,7 @@ void i2c_lpc_transfer(
 	const size_t count_rx);
 bool i2c_probe(i2c_bus_t* const bus, const uint_fast8_t device_address);
 
-#endif /*__I2C_LPC_H__*/
+/* Driver instances. */
+extern const i2c_lpc_config_t i2c_config_fast_clock;
+extern i2c_bus_t i2c0;
+extern i2c_bus_t i2c1;
